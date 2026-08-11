@@ -23,8 +23,9 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx claude-mem')}                     Interactive install
   ${styleText('cyan', 'npx claude-mem install')}              Interactive install
   ${styleText('cyan', 'npx claude-mem install --ide <id>')}   Install for specific IDE
-  ${styleText('cyan', 'npx claude-mem install --provider claude|gemini|openrouter')}   Set LLM provider non-interactively
-  ${styleText('cyan', 'npx claude-mem install --model <id>')}   Set Claude model (when provider=claude)
+  ${styleText('cyan', 'npx claude-mem install --provider claude|gemini|openrouter|custom')}   Set LLM provider non-interactively
+  ${styleText('cyan', 'npx claude-mem install --provider custom --base-url <url> --model <id> --api-key <key>')}   Configure any OpenAI-compatible endpoint
+  ${styleText('cyan', 'npx claude-mem install --model <id>')}   Set Claude model (when provider=claude) or custom model id (when provider=custom)
   ${styleText('cyan', 'npx claude-mem install --no-auto-start')}   Skip worker auto-start at the end
   ${styleText('cyan', 'npx claude-mem install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
   ${styleText('cyan', 'npx claude-mem install --runtime worker|server')}   Select runtime non-interactively (server brings up Docker pg+redis, generates an API key, injects the IDE MCP config)
@@ -71,6 +72,9 @@ function parseInstallOptions(argv: string[]): InstallOptions {
       'server-url': { type: 'string' },
       'no-auto-start': { type: 'boolean' },
       'disable-auto-memory': { type: 'boolean' },
+      // #1 — custom OpenAI-compatible endpoint flags (provider=custom).
+      'base-url': { type: 'string' },
+      'api-key': { type: 'string' },
     },
     strict: false,
     allowPositionals: true,
@@ -78,8 +82,14 @@ function parseInstallOptions(argv: string[]): InstallOptions {
   const flag = (name: string): string | undefined =>
     typeof values[name] === 'string' ? (values[name] as string) : undefined;
   const provider = flag('provider');
-  if (provider !== undefined && provider !== 'claude' && provider !== 'gemini' && provider !== 'openrouter') {
-    console.error(`Unknown --provider: ${provider}. Allowed: claude, gemini, openrouter`);
+  if (
+    provider !== undefined
+    && provider !== 'claude'
+    && provider !== 'gemini'
+    && provider !== 'openrouter'
+    && provider !== 'custom'
+  ) {
+    console.error(`Unknown --provider: ${provider}. Allowed: claude, gemini, openrouter, custom`);
     process.exit(1);
   }
   const runtime = flag('runtime');
@@ -95,6 +105,12 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     disableAutoMemory: values['disable-auto-memory'] === true,
     runtime: runtime as InstallOptions['runtime'],
     serverUrl: flag('server-url'),
+    // #1 — when provider=custom, --model sets the model id and --base-url /
+    // --api-key set the endpoint and key. --model is shared with the Claude
+    // provider path, so customModel reuses it; base-url/api-key are custom-only.
+    customBaseUrl: flag('base-url'),
+    customModel: flag('model'),
+    customApiKey: flag('api-key'),
   };
 }
 

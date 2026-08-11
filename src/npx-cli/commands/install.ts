@@ -831,12 +831,16 @@ function mergeSettings(updates: Record<string, string>): boolean {
 
 type ProviderId = 'claude' | 'gemini' | 'openrouter';
 /**
- * What the installer prompt may offer. `cmem` is a prompt-only sentinel: picking
- * it configures the generic OpenAI-compatible path (base URL + model + key) and
- * persists CLAUDE_MEM_PROVIDER='openrouter'. The worker only understands
- * 'claude' | 'gemini' | 'openrouter', so 'cmem' must never reach settings.json.
+ * What the installer prompt may offer. `cmem` and `custom` are prompt-only
+ * sentinels: `cmem` configures the CMEM Pro hosted observer model, `custom`
+ * configures a user-supplied OpenAI-compatible endpoint (base URL + model +
+ * key). Both persist CLAUDE_MEM_PROVIDER='openrouter' — the worker's
+ * OpenRouter client is a generic OpenAI-compatible client whose endpoint and
+ * model both come from settings. The worker only understands
+ * 'claude' | 'gemini' | 'openrouter', so 'cmem' and 'custom' must never reach
+ * settings.json.
  */
-type ProviderChoice = ProviderId | 'cmem';
+type ProviderChoice = ProviderId | 'cmem' | 'custom';
 type ClaudeAccessMode = 'subscription' | 'api-key';
 type ClaudeApiMode = 'direct' | 'gateway';
 // Phase 1d: Persisted DB literals (`server_beta_schema_migrations`, job_type
@@ -1001,6 +1005,159 @@ function openBrowser(url: string): void {
   }
 }
 
+/**
+ * Configure a custom OpenAI-compatible endpoint (#1).
+ *
+ * This is the installer's first-class "bring your own model" path. The worker's
+ * OpenRouter client is already a generic OpenAI-compatible client — its endpoint
+ * (CLAUDE_MEM_OPENROUTER_BASE_URL), model (CLAUDE_MEM_OPENROUTER_MODEL), and key
+ * (CLAUDE_MEM_OPENROUTER_API_KEY) all come from settings. So the custom provider
+ * needs no new runtime code: we collect the three values and persist them under
+ * CLAUDE_MEM_PROVIDER='openrouter'.
+ *
+ * Works for DeepSeek, LM Studio, Ollama, vLLM, LiteLLM, or any gateway that
+ * exposes an OpenAI-compatible POST /chat/completions endpoint.
+ *
+ * Non-interactive mode (--provider custom --base-url … --model … --api-key …)
+ * skips all prompts and writes the settings directly.
+ */
+async function configureCustomProvider(options: InstallOptions): Promise<ProviderId> {
+  const existingSettings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+  const existingBaseUrl = existingSettings.CLAUDE_MEM_OPENROUTER_BASE_URL || '';
+  const existingModel = existingSettings.CLAUDE_MEM_OPENROUTER_MODEL || '';
+  const existingKey = existingSettings.CLAUDE_MEM_OPENROUTER_API_KEY || '';
+
+  // Non-interactive: all three must be supplied via flags (or already present in
+  // settings). We never prompt when stdin is not a TTY.
+  if (!isInteractive) {
+    const baseUrl = (options.customBaseUrl ?? '').trim() || existingBaseUrl;
+    const model = (options.customModel ?? '').trim() || existingModel;
+    const apiKey = (options.customApiKey ?? '').trim() || existingKey;
+
+    if (!baseUrl || !model) {
+      log.error(
+        'Custom provider requires --base-url and --model (and usually --api-key). '
+          + 'Example: npx claude-mem install --provider custom '
+          + '--base-url https://api.deepseek.com --model deepseek-chat --api-key <key>',
+      );
+      process.exit(1);
+    }
+
+    const wrote = mergeSettings({
+      CLAUDE_MEM_PROVIDER: 'openrouter',
+      CLAUDE_MEM_OPENROUTER_BASE_URL: baseUrl,
+      CLAUDE_MEM_OPENROUTER_MODEL: model,
+      ...(apiKey ? { CLAUDE_MEM_OPENROUTER_API_KEY: apiKey } : {}),
+    });
+    if (wrote) {
+      log.info('Saved custom OpenAI-compatible provider configuration to ~/.claude-mem/settings.json');
+    }
+    if (!apiKey) {
+      log.warn(
+        'No API key set for the custom endpoint. Local models (LM Studio, Ollama) often need none, '
+          + 'but hosted endpoints will reject requests without one.',
+      );
+    }
+    return 'openrouter';
+  }
+
+  // Interactive: guide the user through base URL, model, and key.
+  p.note(
+    'Point claude-mem at any OpenAI-compatible endpoint.\n\n'
+      + 'The endpoint must accept POST <base URL>/chat/completions with an OpenAI-style\n'
+      + 'request body. Examples:\n'
+      + '  • DeepSeek:        https://api.deepseek.com\n'
+      + '  • OpenAI:          https://api.openai.com/v1\n'
+      + '  • LM Studio (local): http://localhost:1234/v1\n'
+      + '  • Ollama (local):    http://localhost:11434/v1\n'
+      + '  • vLLM / your gateway: https://your-host/v1\n\n'
+      + 'claude-mem appends /chat/completions automatically, so a bare base URL is fine.',
+    'Custom OpenAI-compatible endpoint',
+  );
+
+  const baseUrlResult = await p.text({
+    message: 'Base URL of your OpenAI-compatible endpoint:',
+    placeholder: existingBaseUrl || 'https://api.deepseek.com',
+    defaultValue: existingBaseUrl || '',
+    validate: (v?: string) => {
+      const value = v?.trim() ?? '';
+      if (!value) return 'Base URL required';
+      try {
+        new URL(value);
+        return undefined;
+      } catch {
+        // [ANTI-PATTERN IGNORED]: a URL parse failure here just means the user typed an invalid base URL; the recovery is the inline validation message the prompt displays on every attempt.
+        return 'Enter a valid URL, for example https://api.deepseek.com or http://localhost:1234/v1';
+      }
+    },
+  });
+
+  if (p.isCancel(baseUrlResult)) {
+    p.cancel('Installation cancelled.');
+    process.exit(0);
+  }
+
+  const baseUrl = String(baseUrlResult).trim();
+
+  const modelResult = await p.text({
+    message: 'Model id (passed verbatim to the endpoint):',
+    placeholder: existingModel || 'deepseek-chat',
+    defaultValue: existingModel || '',
+    validate: (v?: string) => {
+      const value = v?.trim() ?? '';
+      if (!value) return 'Model id required';
+      return undefined;
+    },
+  });
+
+  if (p.isCancel(modelResult)) {
+    p.cancel('Installation cancelled.');
+    process.exit(0);
+  }
+
+  const model = String(modelResult).trim();
+
+  // API key: optional for local models (LM Studio, Ollama), required for hosted.
+  const apiKeyResult = await p.password({
+    message: 'API key (leave blank for local models that need none):',
+    mask: '*',
+  });
+
+  let apiKey = '';
+  if (p.isCancel(apiKeyResult)) {
+    // A blank key is legitimate for local endpoints, so cancel == "skip / keep existing".
+    apiKey = existingKey;
+  } else {
+    apiKey = String(apiKeyResult).trim() || existingKey;
+  }
+
+  const wrote = mergeSettings({
+    CLAUDE_MEM_PROVIDER: 'openrouter',
+    CLAUDE_MEM_OPENROUTER_BASE_URL: baseUrl,
+    CLAUDE_MEM_OPENROUTER_MODEL: model,
+    ...(apiKey ? { CLAUDE_MEM_OPENROUTER_API_KEY: apiKey } : {}),
+  });
+  if (wrote) {
+    log.info('Saved custom OpenAI-compatible provider configuration to ~/.claude-mem/settings.json');
+  }
+
+  if (!apiKey) {
+    log.warn(
+      'No API key set. Local models (LM Studio, Ollama) usually need none, '
+        + 'but hosted endpoints will reject requests without one. '
+        + 'Set CLAUDE_MEM_OPENROUTER_API_KEY in settings.json later if needed.',
+    );
+  }
+
+  p.note(
+    `Endpoint: ${baseUrl}\nModel: ${model}\n\n`
+      + 'Settings saved. The next observation will be sent to your custom endpoint.',
+    'Custom provider ready',
+  );
+  return 'openrouter';
+}
+
+
 async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   const initialProvider = (getSetting('CLAUDE_MEM_PROVIDER') as ProviderId) || 'claude';
 
@@ -1122,6 +1279,12 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         persistClaudeProvider();
         return 'claude';
       }
+      // 'custom' is a prompt-only sentinel that configures a user-supplied
+      // OpenAI-compatible endpoint. Delegate to the dedicated handler so the
+      // worker never sees CLAUDE_MEM_PROVIDER='custom'.
+      if (options.provider === 'custom') {
+        return await configureCustomProvider(options);
+      }
       const wrote = mergeSettings({ CLAUDE_MEM_PROVIDER: options.provider });
       if (wrote) log.info(`Saved provider=${options.provider} to ~/.claude-mem/settings.json`);
       log.warn(`Provider=${options.provider} requested non-interactively. API key prompt skipped — set CLAUDE_MEM_${options.provider.toUpperCase()}_API_KEY and CLAUDE_MEM_PROVIDER in settings.json or env manually if not already set.`);
@@ -1189,6 +1352,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         { value: 'cmem', label: labels.cmem, hint: labels.cmemHint },
         { value: 'openrouter', label: labels.openrouter },
         { value: 'gemini', label: labels.gemini },
+        { value: 'custom', label: labels.custom, hint: labels.customHint },
         { value: 'claude', label: labels.claude },
       ],
       initialValue: 'cmem',
@@ -1238,6 +1402,14 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       'CMEM Pro ready',
     );
     return 'openrouter';
+  }
+
+  // Custom OpenAI-compatible endpoint (#1). Like CMEM Pro, no new provider code:
+  // the worker's OpenRouter client is a generic OpenAI-compatible client whose
+  // endpoint, model, and key all come from settings. The installer just collects
+  // the three values and writes them under CLAUDE_MEM_PROVIDER='openrouter'.
+  if (selectedProvider === 'custom') {
+    return await configureCustomProvider(options);
   }
 
   if (selectedProvider === 'claude') {
@@ -1883,7 +2055,7 @@ async function promptTelemetryOptIn(): Promise<void> {
 
 export interface InstallOptions {
   ide?: string;
-  provider?: 'claude' | 'gemini' | 'openrouter';
+  provider?: 'claude' | 'gemini' | 'openrouter' | 'custom';
   model?: string;
   noAutoStart?: boolean;
   disableAutoMemory?: boolean;
@@ -1892,6 +2064,12 @@ export interface InstallOptions {
   runtime?: 'worker' | 'server' | 'server-beta';
   // Base URL the server runtime (and the injected IDE MCP config) targets.
   serverUrl?: string;
+  // #1 — custom OpenAI-compatible endpoint. Only meaningful when
+  // provider='custom'. The three values are written to the OpenRouter settings
+  // keys (the worker's OpenRouter client is a generic OpenAI-compatible client).
+  customBaseUrl?: string;
+  customModel?: string;
+  customApiKey?: string;
 }
 
 export async function runInstallCommand(options: InstallOptions = {}): Promise<void> {
