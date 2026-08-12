@@ -1026,6 +1026,7 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
   const existingBaseUrl = existingSettings.CLAUDE_MEM_OPENROUTER_BASE_URL || '';
   const existingModel = existingSettings.CLAUDE_MEM_OPENROUTER_MODEL || '';
   const existingKey = existingSettings.CLAUDE_MEM_OPENROUTER_API_KEY || '';
+  const existingThinking = existingSettings.CLAUDE_MEM_OPENROUTER_THINKING || '';
 
   // Non-interactive: all three must be supplied via flags (or already present in
   // settings). We never prompt when stdin is not a TTY.
@@ -1033,6 +1034,10 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
     const baseUrl = (options.customBaseUrl ?? '').trim() || existingBaseUrl;
     const model = (options.customModel ?? '').trim() || existingModel;
     const apiKey = (options.customApiKey ?? '').trim() || existingKey;
+    // thinking.type toggle (#1): "enabled"/"disabled" — only honored by MiMo-style
+    // gateways. Invalid values fall through to '' (omit the param).
+    const thinkingRaw = (options.customThinking ?? '').trim().toLowerCase() || existingThinking;
+    const thinking = thinkingRaw === 'enabled' || thinkingRaw === 'disabled' ? thinkingRaw : '';
 
     if (!baseUrl || !model) {
       log.error(
@@ -1048,6 +1053,7 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
       CLAUDE_MEM_OPENROUTER_BASE_URL: baseUrl,
       CLAUDE_MEM_OPENROUTER_MODEL: model,
       ...(apiKey ? { CLAUDE_MEM_OPENROUTER_API_KEY: apiKey } : {}),
+      ...(thinking ? { CLAUDE_MEM_OPENROUTER_THINKING: thinking } : {}),
     });
     if (wrote) {
       log.info('Saved custom OpenAI-compatible provider configuration to ~/.claude-mem/settings.json');
@@ -1131,11 +1137,30 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
     apiKey = String(apiKeyResult).trim() || existingKey;
   }
 
+  // Thinking toggle (#1): MiMo-style gateways support thinking.type. Default to
+  // "disabled" for custom endpoints — faster, cheaper, and avoids the multi-turn
+  // reasoning_content round-trip that breaks agent tool-call loops.
+  const thinkingResult = await p.select({
+    message: 'Deep thinking (thinking.type):',
+    initialValue: existingThinking === 'enabled' || existingThinking === 'disabled' ? existingThinking : 'disabled',
+    options: [
+      { value: 'disabled', label: 'Disabled (faster, recommended for agent loops)', hint: 'thinking.type: disabled' },
+      { value: 'enabled', label: 'Enabled (deep reasoning before answering)', hint: 'thinking.type: enabled' },
+      { value: '', label: 'Omit (use endpoint default)', hint: 'do not send the param' },
+    ],
+  });
+  if (p.isCancel(thinkingResult)) {
+    p.cancel('Installation cancelled.');
+    process.exit(0);
+  }
+  const thinking = typeof thinkingResult === 'string' ? thinkingResult : '';
+
   const wrote = mergeSettings({
     CLAUDE_MEM_PROVIDER: 'openrouter',
     CLAUDE_MEM_OPENROUTER_BASE_URL: baseUrl,
     CLAUDE_MEM_OPENROUTER_MODEL: model,
     ...(apiKey ? { CLAUDE_MEM_OPENROUTER_API_KEY: apiKey } : {}),
+    ...(thinking ? { CLAUDE_MEM_OPENROUTER_THINKING: thinking } : {}),
   });
   if (wrote) {
     log.info('Saved custom OpenAI-compatible provider configuration to ~/.claude-mem/settings.json');
@@ -1150,7 +1175,7 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
   }
 
   p.note(
-    `Endpoint: ${baseUrl}\nModel: ${model}\n\n`
+    `Endpoint: ${baseUrl}\nModel: ${model}\nThinking: ${thinking || '(endpoint default)'}\n\n`
       + 'Settings saved. The next observation will be sent to your custom endpoint.',
     'Custom provider ready',
   );
@@ -2070,6 +2095,8 @@ export interface InstallOptions {
   customBaseUrl?: string;
   customModel?: string;
   customApiKey?: string;
+  // #1 — "enabled"/"disabled" → CLAUDE_MEM_OPENROUTER_THINKING (thinking.type).
+  customThinking?: string;
 }
 
 export async function runInstallCommand(options: InstallOptions = {}): Promise<void> {

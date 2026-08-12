@@ -25,6 +25,7 @@ ${styleText('bold', 'Install Commands')} (no Bun required):
   ${styleText('cyan', 'npx claude-mem install --ide <id>')}   Install for specific IDE
   ${styleText('cyan', 'npx claude-mem install --provider claude|gemini|openrouter|custom')}   Set LLM provider non-interactively
   ${styleText('cyan', 'npx claude-mem install --provider custom --base-url <url> --model <id> --api-key <key>')}   Configure any OpenAI-compatible endpoint
+  ${styleText('cyan', 'npx claude-mem install --provider custom --thinking <enabled|disabled>')}   Toggle deep thinking (thinking.type) for MiMo-style gateways
   ${styleText('cyan', 'npx claude-mem install --model <id>')}   Set Claude model (when provider=claude) or custom model id (when provider=custom)
   ${styleText('cyan', 'npx claude-mem install --no-auto-start')}   Skip worker auto-start at the end
   ${styleText('cyan', 'npx claude-mem install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
@@ -75,6 +76,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
       // #1 — custom OpenAI-compatible endpoint flags (provider=custom).
       'base-url': { type: 'string' },
       'api-key': { type: 'string' },
+      'thinking': { type: 'string' },
     },
     strict: false,
     allowPositionals: true,
@@ -111,6 +113,7 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     customBaseUrl: flag('base-url'),
     customModel: flag('model'),
     customApiKey: flag('api-key'),
+    customThinking: flag('thinking'),
   };
 }
 

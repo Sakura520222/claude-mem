@@ -134,6 +134,14 @@ interface OpenRouterConfig {
   apiUrl: string;
   siteUrl?: string;
   appName?: string;
+  /**
+   * Optional thinking-mode control for gateways that support it (e.g. Xiaomi
+   * MiMo): sent as `thinking.type`. "enabled"/"disabled" = explicit toggle;
+   * undefined = omit the field (endpoint default, so hosted OpenRouter and
+   * other gateways are unaffected). Disabling thinking also sidesteps the
+   * multi-turn reasoning_content round-trip requirement that breaks agent loops.
+   */
+  thinkingType?: 'enabled' | 'disabled';
 }
 
 export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfig> {
@@ -187,7 +195,7 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
   }
 
   protected async query(history: ConversationMessage[], config: OpenRouterConfig): Promise<ProviderQueryResult> {
-    return this.queryOpenRouterMultiTurn(history, config.apiKey, config.model, config.apiUrl, config.siteUrl, config.appName);
+    return this.queryOpenRouterMultiTurn(history, config.apiKey, config.model, config.apiUrl, config.siteUrl, config.appName, config.thinkingType);
   }
 
   /** POST the chat-completions request. Extracted so the retry try block stays narrow. */
@@ -199,7 +207,8 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
     siteUrl: string | undefined,
     appName: string | undefined,
     priorRequestId: string | null,
-    attemptSignal: AbortSignal
+    attemptSignal: AbortSignal,
+    thinkingType: 'enabled' | 'disabled' | undefined
   ): Promise<Response> {
     return fetch(apiUrl, {
       method: 'POST',
@@ -219,6 +228,15 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
         // Only sent to openrouter.ai — strict custom gateways may reject
         // unknown body fields.
         ...(apiUrl.includes('openrouter.ai') ? { usage: { include: true } } : {}),
+        // Thinking-mode control for gateways that support `thinking.type`
+        // (e.g. Xiaomi MiMo — see OpenAI-compatible deep-thinking spec). Only
+        // emitted when the user explicitly sets CLAUDE_MEM_OPENROUTER_THINKING,
+        // so hosted OpenRouter and unsupported gateways are unaffected.
+        // Disabling thinking avoids the multi-turn reasoning_content round-trip
+        // requirement that can 400 inside the agent tool-call loop.
+        ...(thinkingType !== undefined
+          ? { thinking: { type: thinkingType } }
+          : {}),
       }),
       signal: attemptSignal,
     });
@@ -230,7 +248,8 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
     model: string,
     apiUrl: string,
     siteUrl?: string,
-    appName?: string
+    appName?: string,
+    thinkingType?: 'enabled' | 'disabled'
   ): Promise<ProviderQueryResult> {
     const messages = this.conversationToOpenAIMessages(history);
     const totalChars = history.reduce((sum, m) => sum + m.content.length, 0);
@@ -247,7 +266,7 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
     const data = await withRetry<OpenRouterResponse>(async (attemptSignal) => {
       let response: Response;
       try {
-        response = await this.fetchChatCompletion(apiUrl, apiKey, model, messages, siteUrl, appName, priorRequestId, attemptSignal);
+        response = await this.fetchChatCompletion(apiUrl, apiKey, model, messages, siteUrl, appName, priorRequestId, attemptSignal, thinkingType);
       } catch (networkError: unknown) {
         const err = networkError instanceof Error ? networkError : new Error(String(networkError));
         throw classifyOpenRouterError({ cause: err });
@@ -354,7 +373,20 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
     const siteUrl = settings.CLAUDE_MEM_OPENROUTER_SITE_URL || '';
     const appName = settings.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem';
 
-    return { apiKey, model, apiUrl, siteUrl, appName };
+    // Thinking control (#1): thinking.type for MiMo-style deep-thinking gateways.
+    // Empty/unset = omit the param (endpoint default); "enabled"/"disabled" = explicit.
+    const thinkingRaw = settings.CLAUDE_MEM_OPENROUTER_THINKING;
+    const thinkingType: 'enabled' | 'disabled' | undefined =
+      thinkingRaw === 'enabled' || thinkingRaw === 'disabled' ? thinkingRaw : undefined;
+
+    return {
+      apiKey,
+      model,
+      apiUrl,
+      siteUrl,
+      appName,
+      ...(thinkingType !== undefined ? { thinkingType } : {}),
+    };
   }
 }
 

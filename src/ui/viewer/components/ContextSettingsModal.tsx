@@ -425,6 +425,30 @@ export function ContextSettingsModal({
                     />
                   </FormField>
                   <FormField
+                    label="Custom Base URL (Optional)"
+                    tooltip="Point the OpenRouter client at any OpenAI-compatible endpoint (DeepSeek, OpenAI, LM Studio, Ollama, vLLM). Empty = default OpenRouter. /chat/completions is appended automatically."
+                  >
+                    <input
+                      type="text"
+                      value={formState.CLAUDE_MEM_OPENROUTER_BASE_URL || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_BASE_URL', e.target.value)}
+                      placeholder="https://api.deepseek.com"
+                    />
+                  </FormField>
+                  <FormField
+                    label="Deep Thinking (Optional)"
+                    tooltip="thinking.type toggle for MiMo-style gateways. 'disabled' = faster and avoids the agent reasoning_content round-trip that can break tool-call loops; 'enabled' = deep reasoning before answering. Empty = endpoint default."
+                  >
+                    <select
+                      value={formState.CLAUDE_MEM_OPENROUTER_THINKING || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_THINKING', e.target.value)}
+                    >
+                      <option value="">Endpoint default</option>
+                      <option value="disabled">disabled (faster, recommended)</option>
+                      <option value="enabled">enabled (deep reasoning)</option>
+                    </select>
+                  </FormField>
+                  <FormField
                     label="Site URL (Optional)"
                     tooltip="Your site URL for OpenRouter analytics (optional)"
                   >

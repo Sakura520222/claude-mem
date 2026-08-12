@@ -27,7 +27,7 @@ function syncCodexPlugin(plugin, pkg) {
 
   return {
     ...plugin,
-    name: pkg.name,
+    name: unscopedPluginName(pkg),
     version: pkg.version,
     description: pkg.description,
     homepage: pkg.homepage,
@@ -49,7 +49,7 @@ function syncCodexPlugin(plugin, pkg) {
 function syncClaudePlugin(plugin, pkg) {
   return {
     ...plugin,
-    name: pkg.name,
+    name: unscopedPluginName(pkg),
     version: pkg.version,
     description: pkg.description,
     homepage: pkg.homepage,
@@ -67,6 +67,15 @@ function normalizeAuthorName(author) {
   if (typeof author === 'string') return author;
   if (author && typeof author === 'object' && typeof author.name === 'string') return author.name;
   return '';
+}
+
+// Plugin identifiers must be unscoped — Codex/Claude reject `@` and `/` (only
+// [A-Za-z0-9._-] allowed). The npm package name may be scoped (e.g.
+// @cherrysakura/claude-mem), but the name written into plugin.json must stay the
+// unscoped tail (claude-mem) so it matches marketplace.json and passes IDE
+// plugin-name validation. See CodexCliInstaller CODEX_PLUGIN_ID.
+function unscopedPluginName(pkg) {
+  return pkg.name.includes('/') ? pkg.name.split('/').pop() : pkg.name;
 }
 
 function normalizeRepositoryUrl(repository) {
