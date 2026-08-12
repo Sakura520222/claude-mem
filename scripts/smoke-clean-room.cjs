@@ -40,6 +40,10 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const PLUGIN_DIR = path.join(REPO_ROOT, 'plugin');
+// Resolve the install dir from package.json so renaming the package (e.g. to a
+// scoped name like @scope/claude-mem) doesn't break the node_modules/<name>
+// lookups below.
+const PKG_NAME = require(path.join(REPO_ROOT, 'package.json')).name;
 
 // zod v4 subpath exports that @modelcontextprotocol/sdk (and friends) require at
 // runtime. These are the exact specifiers behind the #2730 incident.
@@ -221,7 +225,7 @@ function checkPackageCompleteness(failures) {
     return;
   }
 
-  const pkgRoot = path.join(tmpPkg, 'node_modules', 'claude-mem');
+  const pkgRoot = path.join(tmpPkg, 'node_modules', PKG_NAME);
   if (!fs.existsSync(pkgRoot)) {
     failures.push(`installed package not found at ${pkgRoot}`);
     return;
@@ -244,10 +248,11 @@ function checkPackageCompleteness(failures) {
 
   // bin — this is the hard check: it must exist and load.
   const binField = installedPkg.bin;
+  // First bin entry's path — robust against bin command renames.
   const binPath =
     typeof binField === 'string'
       ? binField
-      : binField && binField['claude-mem'];
+      : binField && Object.values(binField)[0];
   if (binPath) {
     const abs = path.join(pkgRoot, binPath);
     if (fs.existsSync(abs)) entries.push({ label: `bin (${binPath})`, abs, kind: 'bin' });
