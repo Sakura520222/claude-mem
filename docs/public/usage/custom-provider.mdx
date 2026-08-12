@@ -11,13 +11,14 @@ No new provider code is needed: claude-mem's OpenRouter client is already a gene
 
 ## How It Works
 
-The worker's OpenRouter client reads three settings to determine where to send requests:
+The worker's OpenRouter client reads these settings to determine where to send requests:
 
 | Setting | What it controls |
 |---------|------------------|
 | `CLAUDE_MEM_OPENROUTER_BASE_URL` | The endpoint root. claude-mem appends `/chat/completions` automatically (or uses the URL verbatim if it already ends in `/chat/completions`). |
 | `CLAUDE_MEM_OPENROUTER_MODEL` | The model id, passed verbatim in the request body. |
 | `CLAUDE_MEM_OPENROUTER_API_KEY` | Sent as the `Authorization: Bearer` header. Optional for local endpoints. |
+| `CLAUDE_MEM_OPENROUTER_THINKING` | Optional deep-thinking toggle (`thinking.type`): `"enabled"` / `"disabled"` on MiMo-style gateways; empty = omit (endpoint default). See [Deep Thinking](#deep-thinking-thinkingtype). |
 
 Because these are the same keys the OpenRouter provider uses, `CLAUDE_MEM_PROVIDER` stays `openrouter` — the worker does not need a separate `'custom'` code path.
 
@@ -34,6 +35,7 @@ You'll be prompted for:
 1. **Base URL** — e.g. `https://api.deepseek.com` or `http://localhost:1234/v1`
 2. **Model id** — e.g. `deepseek-chat` or `gpt-4o`
 3. **API key** — leave blank for local models that don't require one (LM Studio, Ollama)
+4. **Deep thinking** — `disabled` (default, recommended for agent loops), `enabled`, or omit. See [Deep Thinking](#deep-thinking-thinkingtype).
 
 ## Non-Interactive Setup
 
@@ -44,10 +46,11 @@ npx claude-mem install \
   --provider custom \
   --base-url https://api.deepseek.com \
   --model deepseek-chat \
-  --api-key sk-your-key
+  --api-key sk-your-key \
+  --thinking disabled
 ```
 
-The `--base-url` and `--model` flags are required; `--api-key` is optional (omit it for local endpoints). If a base URL and model are already present in `~/.claude-mem/settings.json`, they are reused.
+The `--base-url` and `--model` flags are required; `--api-key` is optional (omit it for local endpoints). `--thinking` accepts `enabled` / `disabled` (see [Deep Thinking](#deep-thinking-thinkingtype)). If a base URL and model are already present in `~/.claude-mem/settings.json`, they are reused.
 
 ## Manual Configuration
 
@@ -58,7 +61,8 @@ Edit `~/.claude-mem/settings.json`:
   "CLAUDE_MEM_PROVIDER": "openrouter",
   "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://api.deepseek.com",
   "CLAUDE_MEM_OPENROUTER_MODEL": "deepseek-chat",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "sk-your-key"
+  "CLAUDE_MEM_OPENROUTER_API_KEY": "sk-your-key",
+  "CLAUDE_MEM_OPENROUTER_THINKING": "disabled"
 }
 ```
 
@@ -120,6 +124,20 @@ Any server that implements the OpenAI `/chat/completions` contract works. Point 
   "CLAUDE_MEM_OPENROUTER_MODEL": "your-model-id"
 }
 ```
+
+## Deep Thinking (`thinking.type`)
+
+Some gateways expose a deep-thinking / reasoning mode via the OpenAI-style `thinking.type` body field. claude-mem sends `thinking: { type: "enabled" | "disabled" }` **only** when `CLAUDE_MEM_OPENROUTER_THINKING` is `enabled` or `disabled`; any other value (or unset) omits the field entirely, so hosted OpenRouter and unsupported gateways are unaffected.
+
+| Value | Behavior |
+|-------|----------|
+| `disabled` | Fast, cheap, no reasoning trace. **Recommended for claude-mem** — the worker is a multi-turn agent loop, and reasoning models that emit `reasoning_content` require it to be replayed on every later turn once a tool call has happened, otherwise the gateway returns `400`. Disabling sidesteps that entirely and avoids the 30s timeouts common with reasoning models. |
+| `enabled` | The model reasons before answering. Slower and costlier; useful for a one-off complex summary but tends to hit timeouts inside the worker's multi-turn loop. |
+| _(unset)_ | Let the endpoint use its own default (typically thinking ON for Xiaomi MiMo `mimo-v2.5` / `mimo-v2.5-pro`). |
+
+Supported on Xiaomi MiMo (`mimo-v2.5`, `mimo-v2.5-pro`) and other vLLM/Qwen-style gateways. Set it via the installer prompt, `--thinking`, the WebUI **Deep Thinking** field, or directly in `settings.json`.
+
+> **Note (MiMo):** under deep thinking the model ignores `temperature` / `top_p` (forced to 1.0 / 0.95), and `max_completion_tokens` caps the *combined* thinking + answer length — leave headroom or the answer gets truncated.
 
 ## Base URL Resolution Rules
 
