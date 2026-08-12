@@ -335,6 +335,76 @@ describe('Install Non-TTY Support', () => {
     });
   });
 
+  describe('custom OpenAI-compatible provider (#1)', () => {
+    const indexSource = readFileSync(join(__dirname, '..', 'src', 'npx-cli', 'index.ts'), 'utf-8');
+
+    it('offers a custom provider option in the interactive prompt', () => {
+      expect(installSource).toContain("value: 'custom'");
+      expect(installSource).toContain("labels.custom");
+    });
+
+    it('treats custom as a prompt-only sentinel that persists openrouter', () => {
+      expect(installSource).toContain("type ProviderChoice = ProviderId | 'cmem' | 'custom'");
+      // The custom handler must write CLAUDE_MEM_PROVIDER='openrouter', never 'custom'.
+      const customRegion = installSource.slice(
+        installSource.indexOf('async function configureCustomProvider'),
+        installSource.indexOf('async function promptProvider'),
+      );
+      expect(customRegion).toContain("CLAUDE_MEM_PROVIDER: 'openrouter'");
+      expect(customRegion).not.toContain("CLAUDE_MEM_PROVIDER: 'custom'");
+    });
+
+    it('writes base URL, model, and key to the OpenRouter settings keys', () => {
+      const customRegion = installSource.slice(
+        installSource.indexOf('async function configureCustomProvider'),
+        installSource.indexOf('async function promptProvider'),
+      );
+      expect(customRegion).toContain('CLAUDE_MEM_OPENROUTER_BASE_URL');
+      expect(customRegion).toContain('CLAUDE_MEM_OPENROUTER_MODEL');
+      expect(customRegion).toContain('CLAUDE_MEM_OPENROUTER_API_KEY');
+    });
+
+    it('requires base URL and model in non-interactive mode', () => {
+      const customRegion = installSource.slice(
+        installSource.indexOf('async function configureCustomProvider'),
+        installSource.indexOf('async function promptProvider'),
+      );
+      expect(customRegion).toContain('Custom provider requires --base-url and --model');
+    });
+
+    it('routes --provider custom to the custom handler in non-interactive mode', () => {
+      const promptRegion = installSource.slice(
+        installSource.indexOf('if (!isInteractive) {'),
+        installSource.indexOf('const runClaudeAuthFlow'),
+      );
+      expect(promptRegion).toContain("options.provider === 'custom'");
+      expect(promptRegion).toContain('configureCustomProvider(options)');
+    });
+
+    it('accepts custom as a valid --provider value in the CLI parser', () => {
+      expect(indexSource).toContain("provider !== 'custom'");
+      expect(indexSource).toContain('Allowed: claude, gemini, openrouter, custom');
+    });
+
+    it('parses --base-url and --api-key flags for the custom provider', () => {
+      expect(indexSource).toContain("'base-url': { type: 'string' }");
+      expect(indexSource).toContain("'api-key': { type: 'string' }");
+      expect(indexSource).toContain("customBaseUrl: flag('base-url')");
+      expect(indexSource).toContain("customApiKey: flag('api-key')");
+    });
+
+    it('documents the custom provider in help output', () => {
+      expect(indexSource).toContain('claude|gemini|openrouter|custom');
+      expect(indexSource).toContain('--provider custom --base-url');
+    });
+
+    it('exposes custom provider fields on InstallOptions', () => {
+      expect(installSource).toContain('customBaseUrl?: string');
+      expect(installSource).toContain('customModel?: string');
+      expect(installSource).toContain('customApiKey?: string');
+    });
+  });
+
   describe('post-install Next Steps copy', () => {
     it('frames the choice as two paths', () => {
       expect(installSource).toContain('Two paths from here:');

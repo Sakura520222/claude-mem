@@ -1,0 +1,168 @@
+---
+title: "Custom Provider"
+description: "Use any OpenAI-compatible endpoint (DeepSeek, OpenAI, LM Studio, Ollama, vLLM, LiteLLM) as the observation model"
+---
+
+# Custom OpenAI-Compatible Provider
+
+Claude-mem can point its observation model at **any** endpoint that exposes an OpenAI-compatible `POST /chat/completions` API. This includes hosted services (DeepSeek, OpenAI, Together, Groq, Fireworks) and local runtimes (LM Studio, Ollama, vLLM, LiteLLM).
+
+No new provider code is needed: claude-mem's OpenRouter client is already a generic OpenAI-compatible HTTP client. The "custom" option in the installer simply writes three settings — a base URL, a model id, and an API key — under the existing OpenRouter settings keys.
+
+## How It Works
+
+The worker's OpenRouter client reads three settings to determine where to send requests:
+
+| Setting | What it controls |
+|---------|------------------|
+| `CLAUDE_MEM_OPENROUTER_BASE_URL` | The endpoint root. claude-mem appends `/chat/completions` automatically (or uses the URL verbatim if it already ends in `/chat/completions`). |
+| `CLAUDE_MEM_OPENROUTER_MODEL` | The model id, passed verbatim in the request body. |
+| `CLAUDE_MEM_OPENROUTER_API_KEY` | Sent as the `Authorization: Bearer` header. Optional for local endpoints. |
+
+Because these are the same keys the OpenRouter provider uses, `CLAUDE_MEM_PROVIDER` stays `openrouter` — the worker does not need a separate `'custom'` code path.
+
+## Interactive Setup
+
+Run the installer and choose the **Custom OpenAI-compatible endpoint** option:
+
+```bash
+npx claude-mem install
+```
+
+You'll be prompted for:
+
+1. **Base URL** — e.g. `https://api.deepseek.com` or `http://localhost:1234/v1`
+2. **Model id** — e.g. `deepseek-chat` or `gpt-4o`
+3. **API key** — leave blank for local models that don't require one (LM Studio, Ollama)
+
+## Non-Interactive Setup
+
+For CI, provisioning scripts, or headless boxes:
+
+```bash
+npx claude-mem install \
+  --provider custom \
+  --base-url https://api.deepseek.com \
+  --model deepseek-chat \
+  --api-key sk-your-key
+```
+
+The `--base-url` and `--model` flags are required; `--api-key` is optional (omit it for local endpoints). If a base URL and model are already present in `~/.claude-mem/settings.json`, they are reused.
+
+## Manual Configuration
+
+Edit `~/.claude-mem/settings.json`:
+
+```json
+{
+  "CLAUDE_MEM_PROVIDER": "openrouter",
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://api.deepseek.com",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "deepseek-chat",
+  "CLAUDE_MEM_OPENROUTER_API_KEY": "sk-your-key"
+}
+```
+
+Settings are applied immediately — no restart required.
+
+## Common Endpoints
+
+### DeepSeek
+
+```json
+{
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://api.deepseek.com",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "deepseek-chat"
+}
+```
+
+### OpenAI
+
+```json
+{
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://api.openai.com/v1",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "gpt-4o-mini"
+}
+```
+
+### LM Studio (local)
+
+[LM Studio](https://lmstudio.ai) runs models locally and exposes an OpenAI-compatible server.
+
+```json
+{
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "http://localhost:1234/v1",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "local-model"
+}
+```
+
+No API key is required. Start the LM Studio local server, then use the model id shown in its UI.
+
+### Ollama (local)
+
+[Ollama](https://ollama.com) exposes an OpenAI-compatible endpoint at `/v1`.
+
+```json
+{
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "http://localhost:11434/v1",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "llama3.1"
+}
+```
+
+No API key is required. Run `ollama pull llama3.1` first.
+
+### vLLM / your gateway
+
+Any server that implements the OpenAI `/chat/completions` contract works. Point the base URL at the `/v1` root (or wherever the server mounts the API).
+
+```json
+{
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://your-gateway.example.com/v1",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "your-model-id"
+}
+```
+
+## Base URL Resolution Rules
+
+claude-mem normalizes the base URL before appending `/chat/completions`:
+
+| Base URL | Resolved endpoint |
+|----------|-------------------|
+| _(unset)_ | `https://openrouter.ai/api/v1/chat/completions` (default OpenRouter) |
+| `https://api.deepseek.com` | `https://api.deepseek.com/chat/completions` |
+| `https://api.openai.com/v1` | `https://api.openai.com/v1/chat/completions` |
+| `http://localhost:1234/v1/` | `http://localhost:1234/v1/chat/completions` (trailing slash normalized) |
+| `https://host/v1/chat/completions` | used verbatim (already a full endpoint) |
+
+## Troubleshooting
+
+### "API key not configured"
+
+Set `CLAUDE_MEM_OPENROUTER_API_KEY` in `~/.claude-mem/settings.json`, or via `--api-key` on the installer. Local models (LM Studio, Ollama) usually need no key — the warning is safe to ignore for those.
+
+### Connection refused (local endpoints)
+
+Make sure the local server is running and listening on the port in your base URL. For LM Studio, start the local server; for Ollama, ensure the service is up with `ollama serve`.
+
+### Model not found / 404
+
+Verify the model id is exactly what the endpoint expects. Model ids are passed verbatim — check the provider's model list or the local server's UI.
+
+### Requests still going to OpenRouter
+
+Confirm `CLAUDE_MEM_OPENROUTER_BASE_URL` is set and non-empty in `~/.claude-mem/settings.json`. If it's blank, the worker falls back to the default OpenRouter endpoint.
+
+## Comparing Providers
+
+| Feature | Claude (SDK) | Gemini | OpenRouter | Custom endpoint |
+|---------|-------------|--------|------------|-----------------|
+| **Cost** | Pay per token | Free tier + paid | Free models + paid | Depends on your endpoint |
+| **Models** | Claude only | Gemini only | 100+ models | Any OpenAI-compatible model |
+| **Local** | No | No | No | Yes (LM Studio, Ollama, vLLM) |
+| **Setup** | Automatic | API key required | API key required | Base URL + model + key |
+
+## Next Steps
+
+- [Configuration](/configuration) - Full settings reference
+- [OpenRouter Provider](/usage/openrouter-provider) - Use OpenRouter's hosted multi-model API
+- [Gemini Provider](/usage/gemini-provider) - Google's free-tier provider
+- [Getting Started](/usage/getting-started) - Basic usage guide

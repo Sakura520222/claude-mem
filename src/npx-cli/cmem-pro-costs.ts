@@ -128,6 +128,8 @@ export interface ProviderLabels {
   openrouter: string;
   gemini: string;
   claude: string;
+  custom: string;
+  customHint: string;
   /** False when any rate came from the fallback table. */
   live: boolean;
 }
@@ -156,6 +158,9 @@ export async function buildProviderLabels(): Promise<ProviderLabels> {
       `Gemini API key                            (~$${costPer1kObservations(rates.gemini)}/1k observations, billed to you)`,
     claude:
       `Use your Anthropic plan                   (~$${costPer1kObservations(rates.claude)}/1k observations, from your Claude plan)`,
+    custom:
+      'Custom OpenAI-compatible endpoint         (DeepSeek, LM Studio, Ollama, vLLM, your gateway — bring your own base URL, model & key)',
+    customHint: 'Any OpenAI-compatible /chat/completions endpoint',
     live,
   };
 }

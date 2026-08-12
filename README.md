@@ -350,6 +350,30 @@ Language-specific modes follow the pattern `code--[lang]` where `[lang]` is the 
 Restart Claude Code to apply the new mode configuration.
 ---
 
+### AI Providers
+
+Claude-Mem supports several AI providers for observation compression. Choose one during `npx claude-mem install` or set `CLAUDE_MEM_PROVIDER` in `~/.claude-mem/settings.json`:
+
+| Provider | Description |
+|----------|-------------|
+| **Claude** (default) | Uses your logged-in Claude SDK account or an Anthropic API key |
+| **Gemini** | Google Gemini API — free tier available ([get key](https://aistudio.google.com/app/apikey)) |
+| **OpenRouter** | 100+ models through one API, including free options |
+| **Custom endpoint** | Any OpenAI-compatible endpoint: DeepSeek, OpenAI, LM Studio, Ollama, vLLM, LiteLLM, or your own gateway |
+
+The **Custom** option lets you bring your own model — just provide a base URL, model id, and API key. Non-interactive example:
+
+```bash
+npx claude-mem install --provider custom \
+  --base-url https://api.deepseek.com \
+  --model deepseek-chat \
+  --api-key sk-your-key
+```
+
+See the **[Custom Provider Guide](https://docs.claude-mem.ai/usage/custom-provider)** and **[OpenRouter Provider Guide](https://docs.claude-mem.ai/usage/openrouter-provider)** for details.
+
+---
+
 ## Development
 
 See the **[Development Guide](https://docs.claude-mem.ai/development)** for build instructions, testing, and contribution workflow.

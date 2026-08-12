@@ -14,7 +14,7 @@ Settings are managed in `~/.claude-mem/settings.json`. The file is auto-created 
 | Setting                       | Default                         | Description                           |
 |-------------------------------|---------------------------------|---------------------------------------|
 | `CLAUDE_MEM_MODEL`            | `claude-haiku-4-5-20251001`     | Claude model used to compress observations (when using the Claude provider) |
-| `CLAUDE_MEM_PROVIDER`         | `claude`                        | AI provider: `claude`, `gemini`, or `openrouter` |
+| `CLAUDE_MEM_PROVIDER`         | `claude`                        | AI provider: `claude`, `gemini`, `openrouter`, or `custom` (installer-only alias that points the OpenRouter client at any OpenAI-compatible endpoint) |
 | `CLAUDE_MEM_CLAUDE_AUTH_METHOD` | `subscription`                | Claude provider auth mode: `subscription`, `api-key`, or `gateway` |
 | `CLAUDE_MEM_MODE`             | `code`                          | Active mode profile (e.g., `code--es`, `email-investigation`) |
 | `CLAUDE_MEM_CONTEXT_OBSERVATIONS` | `50`                        | Number of observations to inject      |
@@ -38,10 +38,11 @@ See [Gemini Provider](usage/gemini-provider) for detailed configuration and free
 |----------------------------------------------|-----------------------------|---------------------------------------|
 | `CLAUDE_MEM_OPENROUTER_API_KEY`              | —                           | OpenRouter API key ([get key](https://openrouter.ai/keys)) |
 | `CLAUDE_MEM_OPENROUTER_MODEL`                | `xiaomi/mimo-v2-flash:free` | Model identifier (supports 100+ models) |
+| `CLAUDE_MEM_OPENROUTER_BASE_URL`             | —                           | Optional: point the OpenRouter client at **any OpenAI-compatible endpoint** (e.g. `https://api.deepseek.com`, `http://localhost:1234/v1` for LM Studio). `/chat/completions` is appended automatically. See [Custom Provider](usage/custom-provider). |
 | `CLAUDE_MEM_OPENROUTER_SITE_URL`             | —                           | Optional: URL for analytics           |
 | `CLAUDE_MEM_OPENROUTER_APP_NAME`             | `claude-mem`                | Optional: App name for analytics      |
 
-See [OpenRouter Provider](usage/openrouter-provider) for detailed configuration, free model list, and usage guide.
+See [OpenRouter Provider](usage/openrouter-provider) for detailed configuration, free model list, and usage guide. For bringing your own OpenAI-compatible endpoint (DeepSeek, OpenAI, LM Studio, Ollama, vLLM, LiteLLM), see [Custom Provider](usage/custom-provider).
 
 ### Claude Gateway Settings
 

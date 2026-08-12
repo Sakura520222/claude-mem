@@ -63,8 +63,8 @@ jobs:
             `;
 
             const variables = {
-              repositoryId: 'R_kgDOPng1Jw',
-              categoryId: 'DIC_kwDOPng1J84Cw86z',
+              repositoryId: 'R_kgDOT0zB1A',
+              categoryId: 'DIC_kwDOT0zB1M4DDMVA',
               title: issue.title,
               body: discussionBody
             };
