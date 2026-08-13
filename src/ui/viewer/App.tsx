@@ -10,6 +10,10 @@ import { usePagination } from './hooks/usePagination';
 import { useTheme } from './hooks/useTheme';
 import { Observation, Summary, UserPrompt } from './types';
 import { mergeAndDeduplicateByProject } from './utils/data';
+import { I18nProvider } from './i18n/I18nProvider';
+import { t } from './i18n/core';
+import { viewerDict } from './i18n/dict';
+import { useLocale } from './hooks/useLocale';
 
 export function App() {
   const [currentFilter, setCurrentFilter] = useState('');
@@ -22,6 +26,7 @@ export function App() {
 
   const { observations, summaries, prompts, projects, isProcessing, queueDepth } = useSSE();
   const { settings, saveSettings, isSaving, saveStatus } = useSettings();
+  const { locale, setLocale } = useLocale(settings.CLAUDE_MEM_LOCALE);
   const { preference, setThemePreference } = useTheme();
   const pagination = usePagination(currentFilter);
 
@@ -92,7 +97,7 @@ export function App() {
   }, [currentFilter]);
 
   return (
-    <>
+    <I18nProvider locale={locale}>
       <Header
         projects={projects}
         currentFilter={currentFilter}
@@ -106,6 +111,8 @@ export function App() {
           setStoredWelcomeDismissed(false);
           setWelcomeDismissed(false);
         }}
+        locale={locale}
+        onLocaleChange={setLocale}
       />
 
       <Feed
@@ -133,7 +140,7 @@ export function App() {
       <button
         className="console-toggle-btn"
         onClick={toggleLogsModal}
-        title="Toggle Console"
+        title={t(locale, 'header.toggleConsole', viewerDict)}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="4 17 10 11 4 5"></polyline>
@@ -145,6 +152,6 @@ export function App() {
         isOpen={logsModalOpen}
         onClose={toggleLogsModal}
       />
-    </>
+    </I18nProvider>
   );
 }

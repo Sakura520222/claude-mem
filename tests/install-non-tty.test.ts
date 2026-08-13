@@ -160,8 +160,8 @@ describe('Install Non-TTY Support', () => {
 
     it('copies the install marker into the bundled marketplace plugin before Codex installs it', () => {
       const runtimeSetupRegion = installSource.slice(
-        installSource.indexOf("title: 'Setting up runtime"),
-        installSource.indexOf("return `Runtime ready"),
+        installSource.indexOf("tt('install.task.runtimeTitle')"),
+        installSource.indexOf("tt('install.task.runtimeReady'"),
       );
       expect(runtimeSetupRegion).toContain("writeInstallMarker(join(marketplaceDirectory(), 'plugin'), version, bunVersion, uvVersion)");
     });
@@ -243,7 +243,7 @@ describe('Install Non-TTY Support', () => {
       expect(markerHelperRegion).toContain('writeInstallMarker(marketplaceDir, version, bunVersion, uvVersion)');
       expect(markerHelperRegion).toContain("writeInstallMarker(join(marketplaceDir, 'plugin'), version, bunVersion, uvVersion)");
 
-      const start = installSource.indexOf("title: 'Installing marketplace dependencies'");
+      const start = installSource.indexOf('install.status.installingMarketplaceDeps');
       const end = installSource.indexOf('await runTasks(tasks);', start);
       const marketplaceDepsRegion = installSource.slice(start, end);
       expect(marketplaceDepsRegion).toContain('await runNpmInstallInMarketplace(summary)');
@@ -257,11 +257,11 @@ describe('Install Non-TTY Support', () => {
         installSource.indexOf('async function runRepairCommandInner'),
         installSource.indexOf('export async function runRepairCommand'),
       );
-      expect(repairRegion).toContain("title: 'Setting up runtime'");
-      expect(repairRegion).toContain("title: 'Repairing marketplace runtime'");
+      expect(repairRegion).toContain('install.status.repairRuntime');
+      expect(repairRegion).toContain('install.status.repairingMarketplace');
       expect(repairRegion).toContain('copyPluginToCache(version)');
       expect(repairRegion).toContain('writeInstallMarker(cacheDir, version, bunVersion, uvVersion)');
-      expect(repairRegion).toContain('Repopulating marketplace root from npm package');
+      expect(repairRegion).toContain('install.status.repopulatingMarketplace');
       expect(repairRegion).toContain('copyPluginToMarketplace()');
       expect(repairRegion).toContain('await runNpmInstallInMarketplace(summary)');
       expect(repairRegion).toContain('writeMarketplaceInstallMarkers(marketplaceDir, version, bunVersion, uvVersion)');
@@ -329,7 +329,7 @@ describe('Install Non-TTY Support', () => {
       // The legacy `'server-beta'` value is still accepted by
       // runtime-selector.ts for existing installs, but new writes use 'server'.
       expect(installSource).toContain("value: 'server'");
-      expect(installSource).toContain('Server (beta)');
+      expect(installSource).toContain('install.runtime.serverLabel');
       expect(installSource).toContain("initialValue: 'worker'");
       expect(installSource).toContain('CLAUDE_MEM_RUNTIME');
     });
@@ -369,7 +369,7 @@ describe('Install Non-TTY Support', () => {
         installSource.indexOf('async function configureCustomProvider'),
         installSource.indexOf('async function promptProvider'),
       );
-      expect(customRegion).toContain('Custom provider requires --base-url and --model');
+      expect(customRegion).toContain('install.custom.requiresBaseAndModel');
     });
 
     it('routes --provider custom to the custom handler in non-interactive mode', () => {
@@ -407,24 +407,24 @@ describe('Install Non-TTY Support', () => {
 
   describe('post-install Next Steps copy', () => {
     it('frames the choice as two paths', () => {
-      expect(installSource).toContain('Two paths from here:');
+      expect(installSource).toContain('install.status.twoPaths');
     });
 
     it('sets timing honesty about second-session memory injection', () => {
-      expect(installSource).toContain('Memory injection starts on your second session in a project.');
+      expect(installSource).toContain('install.status.memoryInjection');
     });
 
     it('addresses privacy: everything stays local', () => {
-      expect(installSource).toContain('Everything stays in ');
+      expect(installSource).toContain('install.status.everythingStays');
       expect(installSource).toContain("styleText('cyan', '~/.claude-mem')");
     });
 
     it('keeps /learn-codebase as the optional front-load path', () => {
-      expect(installSource).toContain('/learn-codebase');
+      expect(installSource).toContain('install.status.pathB');
     });
 
     it('demotes the uninstall caveat into a dim footer', () => {
-      expect(installSource).toContain('close all Claude Code sessions before uninstalling');
+      expect(installSource).toContain('install.status.uninstallNote');
     });
 
     it('does not advertise /mem-search in the post-install Next Steps', () => {

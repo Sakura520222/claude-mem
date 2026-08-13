@@ -421,6 +421,38 @@
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
     }
 
+    /* Language Toggle Button - same shape as theme-toggle-btn */
+    .language-toggle-btn {
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 6px;
+      padding: 0;
+      width: 36px;
+      height: 36px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-text-secondary);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .language-toggle-btn:hover {
+      background: var(--color-bg-card-hover);
+      border-color: var(--color-border-focus);
+      color: var(--color-text-primary);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+    }
+
+    .language-toggle-label {
+      font-family: var(--font-terminal);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1;
+    }
+
     .settings-btn.active {
       background: linear-gradient(135deg, var(--color-bg-button) 0%, var(--color-accent-primary) 100%);
       border-color: var(--color-bg-button);
@@ -1459,7 +1491,8 @@
 
       .settings-btn,
       .theme-toggle-btn,
-      .icon-link {
+      .icon-link,
+      .language-toggle-btn {
         width: 32px;
         height: 32px;
         flex-shrink: 0;

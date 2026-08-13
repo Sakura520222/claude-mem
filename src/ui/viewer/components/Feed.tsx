@@ -5,6 +5,7 @@ import { SummaryCard } from './SummaryCard';
 import { PromptCard } from './PromptCard';
 import { ScrollToTop } from './ScrollToTop';
 import { UI } from '../constants/ui';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface FeedProps {
   observations: Observation[];
@@ -16,6 +17,7 @@ interface FeedProps {
 }
 
 export function Feed({ observations, summaries, prompts, onLoadMore, isLoading, hasMore }: FeedProps) {
+  const { t } = useI18n();
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const onLoadMoreRef = useRef(onLoadMore);
@@ -74,13 +76,13 @@ export function Feed({ observations, summaries, prompts, onLoadMore, isLoading, 
         })}
         {items.length === 0 && !isLoading && (
           <div style={{ textAlign: 'center', padding: '40px', color: '#8b949e' }}>
-            No items to display
+            {t('feed.empty')}
           </div>
         )}
         {isLoading && (
           <div style={{ textAlign: 'center', padding: '20px', color: '#8b949e' }}>
             <div className="spinner" style={{ display: 'inline-block', marginRight: '10px' }}></div>
-            Loading more...
+            {t('feed.loading')}
           </div>
         )}
         {hasMore && !isLoading && items.length > 0 && (
@@ -88,7 +90,7 @@ export function Feed({ observations, summaries, prompts, onLoadMore, isLoading, 
         )}
         {!hasMore && items.length > 0 && (
           <div style={{ textAlign: 'center', padding: '20px', color: '#8b949e', fontSize: '14px' }}>
-            No more items to load
+            {t('feed.noMore')}
           </div>
         )}
       </div>

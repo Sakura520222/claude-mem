@@ -45,12 +45,65 @@ import {
   costPer1kObservations,
   fetchBlendedRates,
 } from '../cmem-pro-costs.js';
+import { resolveCliLocale } from '../../shared/i18n/locale.js';
+import { t } from '../../shared/i18n/t.js';
+import { cliDict } from '../i18n/index.js';
+import type { Locale } from '../../shared/i18n/types.js';
 
 function getSetting<K extends keyof SettingsDefaults>(key: K): SettingsDefaults[K] {
   return SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH)[key];
 }
 
 const isInteractive = process.stdin.isTTY === true;
+
+/**
+ * Active install-time locale, set once by resolveInstallLocale() and read by
+ * tt() throughout the install flow. Module-level because the prompt functions
+ * (promptForIDESelection, promptRuntime, promptProvider, …) are called from
+ * runInstallCommandInner but defined as standalone functions that cannot
+ * receive locale as a parameter without touching every signature.
+ */
+let currentLocale: Locale = 'en';
+
+/** Translate an install-flow string in the active locale. */
+function tt(key: string, vars?: Record<string, string | number>): string {
+  return t(currentLocale, key, cliDict, vars);
+}
+
+/**
+ * Resolve and persist the install-time language choice.
+ *
+ * Interactive: prompt with a bilingual label so any user can find their
+ * language. Non-interactive: resolve from CLAUDE_MEM_LANG → system → en.
+ * The choice is written to settings.json's CLAUDE_MEM_LOCALE so the WebUI
+ * (loaded later) picks it up as its default via GET /api/settings.
+ *
+ * Returns the resolved locale for use in every subsequent t() call.
+ */
+async function resolveInstallLocale(): Promise<Locale> {
+  let locale: Locale;
+  if (isInteractive) {
+    const choice = await p.select<Locale>({
+      message: '请选择语言 / Select language',
+      options: [
+        { value: 'zh', label: '中文' },
+        { value: 'en', label: 'English' },
+      ],
+      initialValue: resolveCliLocale(),
+    });
+    if (p.isCancel(choice)) {
+      p.cancel(tt('install.cancelled'));
+      process.exit(0);
+    }
+    locale = choice;
+  } else {
+    locale = resolveCliLocale();
+  }
+
+  mergeSettings({ CLAUDE_MEM_LOCALE: locale });
+  currentLocale = locale;
+  return locale;
+}
 
 /**
  * Which package manager launched this CLI (npx / bunx / pnpm / yarn), parsed
@@ -269,24 +322,24 @@ async function resolveClaudeAutoMemoryChoice(
   }
 
   const choice = await p.select<'leave-enabled' | 'disable'>({
-    message: 'Disable Claude Code auto-memory?',
+    message: tt('install.autoMemory.prompt'),
     options: [
       {
         value: 'leave-enabled',
-        label: 'Leave enabled',
-        hint: 'Recommended; keeps Claude Code native memory visible on startup.',
+        label: tt('install.autoMemory.leaveLabel'),
+        hint: tt('install.autoMemory.leaveHint'),
       },
       {
         value: 'disable',
-        label: 'Disable auto-memory',
-        hint: 'Only if you explicitly want claude-mem to replace native startup memory.',
+        label: tt('install.autoMemory.disableLabel'),
+        hint: tt('install.autoMemory.disableHint'),
       },
     ],
     initialValue: 'leave-enabled',
   });
 
   if (p.isCancel(choice)) {
-    p.cancel('Installation cancelled.');
+    p.cancel(tt('install.cancelled'));
     process.exit(0);
   }
 
@@ -308,116 +361,116 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
   };
 
   switch (ideId) {
-    case 'claude-code': {
+      case 'claude-code': {
       return {
-        title: 'Claude Code: registering plugin',
-        task: async () => `Claude Code: plugin registered ${styleText('green', 'OK')}`,
+        title: tt('install.ide.claudeCodeTaskTitle'),
+        task: async () => `${tt('install.ide.claudeCodeTaskResult')} ${styleText('green', 'OK')}`,
       };
     }
 
     case 'cursor': {
       return {
-        title: 'Cursor: installing hooks + MCP',
+        title: tt('install.ide.cursorTaskTitle'),
         task: async (message) => {
-          message('Loading Cursor installer…');
+          message(tt('install.ide.cursorLoading'));
           const { installCursorHooks, configureCursorMcp } = await import('../../services/integrations/CursorHooksInstaller.js');
-          message('Installing Cursor hooks…');
+          message(tt('install.ide.cursorInstalling'));
           const { result: cursorResult, output: hooksOutput } = await bufferConsole(() => installCursorHooks('user'));
           if (cursorResult !== 0) {
-            recordFailure('Cursor: hook installation failed', hooksOutput);
-            return `Cursor: hook installation failed ${styleText('red', 'FAIL')}`;
+            recordFailure(tt('install.ide.cursorHookFailed'), hooksOutput);
+            return `${tt('install.ide.cursorHookFailed')} ${styleText('red', 'FAIL')}`;
           }
-          message('Configuring Cursor MCP…');
+          message(tt('install.ide.cursorConfiguring'));
           const { result: mcpResult } = await bufferConsole(async () => configureCursorMcp('user'));
           if (mcpResult === 0) {
-            return `Cursor: hooks + MCP installed ${styleText('green', 'OK')}`;
+            return `${tt('install.ide.cursorOk')} ${styleText('green', 'OK')}`;
           }
-          return `Cursor: hooks installed; MCP setup failed — run \`npx claude-mem cursor mcp\` ${styleText('yellow', '!')}`;
+          return `${tt('install.ide.cursorMcpFailed')} ${styleText('yellow', '!')}`;
         },
       };
     }
 
     case 'opencode': {
       return {
-        title: 'OpenCode: installing plugin',
+        title: tt('install.ide.opencodeTaskTitle'),
         task: async (message) => {
-          message('Loading OpenCode installer…');
+          message(tt('install.ide.opencodeLoading'));
           const { installOpenCodeIntegration } = await import('../../services/integrations/OpenCodeInstaller.js');
-          message('Installing OpenCode plugin…');
+          message(tt('install.ide.opencodeInstalling'));
           const { result, output } = await bufferConsole(() => installOpenCodeIntegration());
           if (result !== 0) {
-            recordFailure('OpenCode: plugin installation failed', output);
-            return `OpenCode: plugin installation failed ${styleText('red', 'FAIL')}`;
+            recordFailure(tt('install.ide.opencodeFailed'), output);
+            return `${tt('install.ide.opencodeFailed')} ${styleText('red', 'FAIL')}`;
           }
-          return `OpenCode: plugin installed ${styleText('green', 'OK')}`;
+          return `${tt('install.ide.opencodeOk')} ${styleText('green', 'OK')}`;
         },
       };
     }
 
     case 'windsurf': {
       return {
-        title: 'Windsurf: installing hooks',
+        title: tt('install.ide.windsurfTaskTitle'),
         task: async (message) => {
-          message('Loading Windsurf installer…');
+          message(tt('install.ide.windsurfLoading'));
           const { installWindsurfHooks } = await import('../../services/integrations/WindsurfHooksInstaller.js');
-          message('Installing Windsurf hooks…');
+          message(tt('install.ide.windsurfInstalling'));
           const { result, output } = await bufferConsole(() => installWindsurfHooks());
           if (result !== 0) {
-            recordFailure('Windsurf: hook installation failed', output);
-            return `Windsurf: hook installation failed ${styleText('red', 'FAIL')}`;
+            recordFailure(tt('install.ide.windsurfFailed'), output);
+            return `${tt('install.ide.windsurfFailed')} ${styleText('red', 'FAIL')}`;
           }
-          return `Windsurf: hooks installed ${styleText('green', 'OK')}`;
+          return `${tt('install.ide.windsurfOk')} ${styleText('green', 'OK')}`;
         },
       };
     }
 
     case 'openclaw': {
       return {
-        title: 'OpenClaw: installing plugin',
+        title: tt('install.ide.openclawTaskTitle'),
         task: async (message) => {
-          message('Loading OpenClaw installer…');
+          message(tt('install.ide.openclawLoading'));
           const { installOpenClawIntegration } = await import('../../services/integrations/OpenClawInstaller.js');
-          message('Copying plugin files…');
+          message(tt('install.ide.openclawCopying'));
           const { result, output } = await bufferConsole(() => installOpenClawIntegration());
           if (result !== 0) {
-            recordFailure('OpenClaw: plugin installation failed', output);
-            return `OpenClaw: plugin installation failed ${styleText('red', 'FAIL')}`;
+            recordFailure(tt('install.ide.openclawFailed'), output);
+            return `${tt('install.ide.openclawFailed')} ${styleText('red', 'FAIL')}`;
           }
-          return `OpenClaw: plugin installed ${styleText('green', 'OK')}`;
+          return `${tt('install.ide.openclawOk')} ${styleText('green', 'OK')}`;
         },
       };
     }
 
     case 'codex-cli': {
       return {
-        title: 'Codex CLI: registering hooks marketplace',
+        title: tt('install.ide.codexTaskTitle'),
         task: async (message) => {
-          message('Loading Codex CLI installer…');
+          message(tt('install.ide.codexLoading'));
           const { installCodexCli } = await import('../../services/integrations/CodexCliInstaller.js');
-          message('Registering native Codex hooks…');
+          message(tt('install.ide.codexRegistering'));
           const { result, output } = await bufferConsole(() => installCodexCli(marketplaceDirectory()));
           if (result !== 0) {
-            recordFailure('Codex CLI: integration setup failed', output);
-            return `Codex CLI: integration setup failed ${styleText('red', 'FAIL')}`;
+            recordFailure(tt('install.ide.codexFailed'), output);
+            return `${tt('install.ide.codexFailed')} ${styleText('red', 'FAIL')}`;
           }
-          return `Codex CLI: hooks marketplace registered ${styleText('green', 'OK')}`;
+          return `${tt('install.ide.codexOk')} ${styleText('green', 'OK')}`;
         },
       };
     }
 
     case 'antigravity': {
       return {
-        title: 'Antigravity: installing hooks + MCP',
+        title: tt('install.ide.antigravityTaskTitle'),
         task: async (message) => {
-          message('Loading Antigravity CLI installer…');
+          message(tt('install.ide.antigravityLoading'));
           const { installAntigravityCliHooks } = await import('../../services/integrations/AntigravityCliHooksInstaller.js');
-          message('Installing Antigravity hooks + MCP…');
+          message(tt('install.ide.antigravityInstalling'));
           const { result, output } = await bufferConsole(() => installAntigravityCliHooks());
           if (result !== 0) {
-            recordFailure('Antigravity: hooks + MCP installation failed', output);
-            return `Antigravity: hooks + MCP installation failed ${styleText('red', 'FAIL')}`;
+            recordFailure(tt('install.ide.antigravityFailed'), output);
+            return `${tt('install.ide.antigravityFailed')} ${styleText('red', 'FAIL')}`;
           }
-          return `Antigravity: hooks + MCP installed ${styleText('green', 'OK')}`;
+          return `${tt('install.ide.antigravityOk')} ${styleText('green', 'OK')}`;
         },
       };
     }
@@ -430,21 +483,21 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
       const ideInfo = allIDEs.find((i) => i.id === ideId);
       const ideLabel = ideInfo?.label ?? ideId;
       return {
-        title: `${ideLabel}: installing MCP integration`,
+        title: tt('install.ide.genericTaskTitle', { label: ideLabel }),
         task: async (message) => {
-          message('Loading MCP installer…');
+          message(tt('install.ide.genericLoading'));
           const { MCP_IDE_INSTALLERS } = await import('../../services/integrations/McpIntegrations.js');
           const mcpInstaller = MCP_IDE_INSTALLERS[ideId];
           if (!mcpInstaller) {
-            return `${ideLabel}: MCP installer not found ${styleText('yellow', '!')}`;
+            return `${tt('install.ide.genericNotFound', { label: ideLabel })} ${styleText('yellow', '!')}`;
           }
-          message(`Configuring ${ideLabel} MCP…`);
+          message(tt('install.ide.genericConfiguring', { label: ideLabel }));
           const { result, output } = await bufferConsole(() => mcpInstaller());
           if (result !== 0) {
-            recordFailure(`${ideLabel}: MCP integration failed`, output);
-            return `${ideLabel}: MCP integration failed ${styleText('red', 'FAIL')}`;
+            recordFailure(tt('install.ide.genericFailed', { label: ideLabel }), output);
+            return `${tt('install.ide.genericFailed', { label: ideLabel })} ${styleText('red', 'FAIL')}`;
           }
-          return `${ideLabel}: MCP integration installed ${styleText('green', 'OK')}`;
+          return `${tt('install.ide.genericOk', { label: ideLabel })} ${styleText('green', 'OK')}`;
         },
       };
     }
@@ -471,9 +524,9 @@ async function setupIDEs(selectedIDEs: string[], summary: InstallSummary): Promi
   // must not print "Installation Complete".
   if (selectedIDEs.length > 0 && summary.failedIDEs.length === selectedIDEs.length) {
     installerError(ErrorSeverity.ABORT, {
-      component: 'all-ides',
+      component: tt('install.ide.componentAll'),
       phase: 'ide-install',
-      cause: new Error(`All ${selectedIDEs.length} selected IDE integrations failed.`),
+      cause: new Error(tt('install.ide.allFailedError', { count: selectedIDEs.length })),
     }, summary);
   }
 
@@ -520,7 +573,7 @@ function applyClaudeCodePathSetupIfNeeded(): void {
       existing = readFileSync(configFile, 'utf-8');
     } catch (error: unknown) {
       // [ANTI-PATTERN IGNORED]: the failure is already surfaced to the user via the interactive-aware log.warn wrapper below (p.log.warn in a TTY, console.warn otherwise); a raw console call here would double-print.
-      log.warn(`Could not read ${configFile}: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(tt('install.path.couldNotRead', { file: configFile, error: error instanceof Error ? error.message : String(error) }));
     }
   } else {
     try {
@@ -531,17 +584,17 @@ function applyClaudeCodePathSetupIfNeeded(): void {
   }
 
   if (existing.includes(claudeBinDir) || existing.includes(binPathLiteral)) {
-    log.info(`Claude Code PATH already configured in ${configFile}`);
+    log.info(tt('install.path.alreadyConfigured', { file: configFile }));
   } else {
     try {
       const trailing = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
       const block = `${trailing}\n# Added by claude-mem installer for Claude Code\n${exportLine}\n`;
       writeFileSync(configFile, existing + block, 'utf-8');
-      log.success(`Added Claude Code to PATH in ${configFile}`);
+      log.success(tt('install.path.added', { file: configFile }));
     } catch (error: unknown) {
       // [ANTI-PATTERN IGNORED]: the failure is already surfaced to the user via the interactive-aware log.warn wrapper below (p.log.warn in a TTY, console.warn otherwise), together with the manual remediation command.
-      log.warn(`Could not update ${configFile}: ${error instanceof Error ? error.message : String(error)}`);
-      log.info(`Run manually: echo '${exportLine}' >> ${configFile}`);
+      log.warn(tt('install.path.couldNotUpdate', { file: configFile, error: error instanceof Error ? error.message : String(error) }));
+      log.info(tt('install.path.runManually', { exportLine, file: configFile }));
       return;
     }
   }
@@ -556,7 +609,7 @@ async function installClaudeCode(): Promise<boolean> {
   const installShell = IS_WINDOWS ? (process.env.ComSpec ?? 'cmd.exe') : '/bin/bash';
 
   const spinner = isInteractive ? p.spinner() : null;
-  spinner?.start('Installing Claude Code (this can take a few minutes — downloading the native build)…');
+  spinner?.start(tt('install.claudeCode.installing'));
 
   return new Promise<boolean>((resolve) => {
     let captured = '';
@@ -569,29 +622,29 @@ async function installClaudeCode(): Promise<boolean> {
     child.stderr?.on('data', (chunk: Buffer) => { captured += chunk.toString(); });
 
     child.on('error', (error: Error) => {
-      spinner?.error('Claude Code install failed');
+      spinner?.error(tt('install.claudeCode.installFailed'));
       if (captured) process.stderr.write(captured);
-      log.error(`Claude Code install failed: ${error.message}`);
-      log.info('You can install it manually later: https://claude.ai/install.sh');
+      log.error(tt('install.claudeCode.installFailedWithError', { error: error.message }));
+      log.info(tt('install.claudeCode.manualInstall'));
       resolve(false);
     });
 
     child.on('exit', (code) => {
       if (code !== 0) {
-        spinner?.error('Claude Code install failed');
+        spinner?.error(tt('install.claudeCode.installFailed'));
         if (captured) process.stderr.write(captured);
-        log.error(`Claude Code install failed (exit ${code ?? 'unknown'})`);
-        log.info('You can install it manually later: https://claude.ai/install.sh');
+        log.error(tt('install.claudeCode.installFailedWithExit', { code: code ?? 'unknown' }));
+        log.info(tt('install.claudeCode.manualInstall'));
         resolve(false);
         return;
       }
-      spinner?.stop('Claude Code installed');
+      spinner?.stop(tt('install.claudeCode.installed'));
       if (!IS_WINDOWS) {
         try {
           applyClaudeCodePathSetupIfNeeded();
         } catch (error: unknown) {
           // [ANTI-PATTERN IGNORED]: the failure is already surfaced to the user via the interactive-aware log.warn wrapper below (p.log.warn in a TTY, console.warn otherwise); PATH setup is best-effort after a successful install.
-          log.warn(`Could not auto-apply PATH setup: ${error instanceof Error ? error.message : String(error)}`);
+          log.warn(tt('install.claudeCode.couldNotApplyPath', { error: error instanceof Error ? error.message : String(error) }));
         }
       }
       resolve(true);
@@ -604,18 +657,18 @@ async function promptForIDESelection(): Promise<string[]> {
   const claudeCodeInfo = detectedIDEs.find((ide) => ide.id === 'claude-code');
 
   if (claudeCodeInfo && !claudeCodeInfo.detected) {
-    log.warn('Claude Code is not installed. Claude-mem works best in Claude Code, but also works with the IDEs below.');
+    log.warn(tt('install.ide.notInstalledWarn'));
     const choice = await p.select<'install' | 'skip' | 'cancel'>({
-      message: 'Install Claude Code now?',
+      message: tt('install.ide.installNowPrompt'),
       options: [
-        { value: 'install', label: 'Yes — install Claude Code (recommended)' },
-        { value: 'skip', label: 'No — pick another IDE below' },
-        { value: 'cancel', label: 'Cancel installation' },
+        { value: 'install', label: tt('install.ide.installNowYes') },
+        { value: 'skip', label: tt('install.ide.installNowSkip') },
+        { value: 'cancel', label: tt('install.ide.installNowCancel') },
       ],
       initialValue: 'install',
     });
     if (p.isCancel(choice) || choice === 'cancel') {
-      p.cancel('Installation cancelled.');
+      p.cancel(tt('install.cancelled'));
       process.exit(0);
     }
     if (choice === 'install') {
@@ -628,7 +681,7 @@ async function promptForIDESelection(): Promise<string[]> {
   const detected = detectedIDEs.filter((ide) => ide.detected);
 
   if (detected.length === 0) {
-    log.warn('No supported IDEs detected — pick the one(s) you plan to use.');
+    log.warn(tt('install.ide.noneDetectedWarn'));
   }
 
   const options = detectedIDEs.map((ide) => {
@@ -641,14 +694,14 @@ async function promptForIDESelection(): Promise<string[]> {
   });
 
   const result = await p.multiselect({
-    message: 'Which IDEs do you use?',
+    message: tt('install.ide.whichPrompt'),
     options,
     initialValues: [],
     required: true,
   });
 
   if (p.isCancel(result)) {
-    p.cancel('Installation cancelled.');
+    p.cancel(tt('install.cancelled'));
     process.exit(0);
   }
 
@@ -820,11 +873,11 @@ function mergeSettings(updates: Record<string, string>): boolean {
     try {
       chmodSync(path, 0o600);
     } catch (chmodError: unknown) {
-      log.warn(`Could not restrict permissions on ${path} to 0600: ${chmodError instanceof Error ? chmodError.message : String(chmodError)}`);
+      log.warn(tt('install.settings.permissionWarn', { path, error: chmodError instanceof Error ? chmodError.message : String(chmodError) }));
     }
     return true;
   } catch (error: unknown) {
-    log.error(`Failed to write settings to ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    log.error(tt('install.settings.writeError', { path, error: error instanceof Error ? error.message : String(error) }));
     return false;
   }
 }
@@ -881,7 +934,7 @@ async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
   if (options.runtime !== undefined) {
     const requested = normalizeRuntimeFlag(options.runtime);
     if (requested === null) {
-      log.error(`Unknown --runtime: ${options.runtime}. Allowed: worker, server`);
+      log.error(tt('install.runtime.unknownFlag', { value: options.runtime }));
       process.exit(1);
     }
     if (requested === 'server') {
@@ -898,16 +951,16 @@ async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
   }
 
   const selected = await p.select<RuntimeId>({
-    message: 'Which runtime should claude-mem start after install?',
+    message: tt('install.runtime.prompt'),
     options: [
-      { value: 'worker', label: 'Worker', hint: 'stable compatibility path' },
-      { value: 'server', label: 'Server (beta)', hint: 'REST V1, API keys, team-ready storage' },
+      { value: 'worker', label: tt('install.runtime.workerLabel'), hint: tt('install.runtime.workerHint') },
+      { value: 'server', label: tt('install.runtime.serverLabel'), hint: tt('install.runtime.serverHint') },
     ],
     initialValue: 'worker',
   });
 
   if (p.isCancel(selected)) {
-    p.cancel('Installation cancelled.');
+    p.cancel(tt('install.cancelled'));
     process.exit(0);
   }
 
@@ -931,18 +984,12 @@ async function setupServerRuntimeNonInteractive(options: InstallOptions): Promis
 
   mergeSettings({ CLAUDE_MEM_RUNTIME: 'server', CLAUDE_MEM_SERVER_URL: serverBaseUrl });
 
-  log.info(
-    'Server runtime selected. Bring up the bundled stack with '
-      + '`docker compose up -d postgres valkey claude-mem-server claude-mem-worker` '
-      + `(pg + redis/valkey). The server listens at ${serverBaseUrl}.`,
-  );
+  log.info(tt('install.server.selectedMessage', { baseUrl: serverBaseUrl }));
 
   // The server mounts its MCP endpoint at `<baseUrl>/mcp` over HTTP (vs. the
   // worker's stdio transport); trailing slashes are trimmed so we never emit
   // `http://host//mcp`.
-  log.info(
-    `IDE MCP config target for the server runtime: http ${serverBaseUrl.replace(/\/+$/, '')}/mcp`,
-  );
+  log.info(tt('install.server.mcpTargetMessage', { baseUrl: serverBaseUrl.replace(/\/+$/, '') }));
 
   await maybeBootstrapServerApiKey();
 }
@@ -952,20 +999,14 @@ async function maybeBootstrapServerApiKey(): Promise<void> {
   // reach the api_keys table — the operator must configure the server first
   // and rerun `claude-mem server keys rotate`.
   if (!process.env.CLAUDE_MEM_SERVER_DATABASE_URL) {
-    log.warn(
-      'Skipping local hook API key bootstrap: CLAUDE_MEM_SERVER_DATABASE_URL is not set. '
-        + 'Run `npx claude-mem server keys rotate` after configuring Postgres to provision a key.',
-    );
+    log.warn(tt('install.server.skipKeyBootstrap'));
     return;
   }
   try {
     await bootstrapAndPersistServerApiKey();
   } catch (error: unknown) {
     // [ANTI-PATTERN IGNORED]: the failure is already surfaced to the user via the interactive-aware log.warn wrapper below (p.log.warn in a TTY, console.warn otherwise), including the manual remediation command.
-    log.warn(
-      `Failed to bootstrap server API key: ${error instanceof Error ? error.message : String(error)}. `
-        + 'Hooks will fall back to the worker until you run `npx claude-mem server keys rotate`.',
-    );
+    log.warn(tt('install.server.keyBootstrapFailed', { error: error instanceof Error ? error.message : String(error) }));
   }
 }
 
@@ -978,10 +1019,7 @@ async function bootstrapAndPersistServerApiKey(): Promise<void> {
     apiKey: result.rawKey,
     projectId: result.projectId,
   });
-  log.info(
-    `Provisioned local hook API key (project=${result.projectId.slice(0, 8)}…). `
-      + 'Settings saved with mode 0600.',
-  );
+  log.info(tt('install.server.keyProvisioned', { projectId: result.projectId.slice(0, 8) }));
 }
 
 /**
@@ -1040,11 +1078,7 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
     const thinking = thinkingRaw === 'enabled' || thinkingRaw === 'disabled' ? thinkingRaw : '';
 
     if (!baseUrl || !model) {
-      log.error(
-        'Custom provider requires --base-url and --model (and usually --api-key). '
-          + 'Example: npx claude-mem install --provider custom '
-          + '--base-url https://api.deepseek.com --model deepseek-chat --api-key <key>',
-      );
+      log.error(tt('install.custom.requiresBaseAndModel'));
       process.exit(1);
     }
 
@@ -1056,68 +1090,57 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
       ...(thinking ? { CLAUDE_MEM_OPENROUTER_THINKING: thinking } : {}),
     });
     if (wrote) {
-      log.info('Saved custom OpenAI-compatible provider configuration to ~/.claude-mem/settings.json');
+      log.info(tt('install.custom.savedConfiguration'));
     }
     if (!apiKey) {
-      log.warn(
-        'No API key set for the custom endpoint. Local models (LM Studio, Ollama) often need none, '
-          + 'but hosted endpoints will reject requests without one.',
-      );
+      log.warn(tt('install.custom.noApiKeyWarning'));
     }
     return 'openrouter';
   }
 
   // Interactive: guide the user through base URL, model, and key.
   p.note(
-    'Point claude-mem at any OpenAI-compatible endpoint.\n\n'
-      + 'The endpoint must accept POST <base URL>/chat/completions with an OpenAI-style\n'
-      + 'request body. Examples:\n'
-      + '  • DeepSeek:        https://api.deepseek.com\n'
-      + '  • OpenAI:          https://api.openai.com/v1\n'
-      + '  • LM Studio (local): http://localhost:1234/v1\n'
-      + '  • Ollama (local):    http://localhost:11434/v1\n'
-      + '  • vLLM / your gateway: https://your-host/v1\n\n'
-      + 'claude-mem appends /chat/completions automatically, so a bare base URL is fine.',
-    'Custom OpenAI-compatible endpoint',
+    tt('install.custom.endpointNote'),
+    tt('install.custom.noteTitle'),
   );
 
   const baseUrlResult = await p.text({
-    message: 'Base URL of your OpenAI-compatible endpoint:',
-    placeholder: existingBaseUrl || 'https://api.deepseek.com',
+    message: tt('install.custom.baseUrlPrompt'),
+    placeholder: existingBaseUrl || tt('install.custom.baseUrlPlaceholder'),
     defaultValue: existingBaseUrl || '',
     validate: (v?: string) => {
       const value = v?.trim() ?? '';
-      if (!value) return 'Base URL required';
+      if (!value) return tt('install.custom.baseUrlValidate');
       try {
         new URL(value);
         return undefined;
       } catch {
         // [ANTI-PATTERN IGNORED]: a URL parse failure here just means the user typed an invalid base URL; the recovery is the inline validation message the prompt displays on every attempt.
-        return 'Enter a valid URL, for example https://api.deepseek.com or http://localhost:1234/v1';
+        return tt('install.custom.baseUrlValidateInvalid');
       }
     },
   });
 
   if (p.isCancel(baseUrlResult)) {
-    p.cancel('Installation cancelled.');
+    p.cancel(tt('install.cancelled'));
     process.exit(0);
   }
 
   const baseUrl = String(baseUrlResult).trim();
 
   const modelResult = await p.text({
-    message: 'Model id (passed verbatim to the endpoint):',
-    placeholder: existingModel || 'deepseek-chat',
+    message: tt('install.custom.modelIdPrompt'),
+    placeholder: existingModel || tt('install.custom.modelIdPlaceholder'),
     defaultValue: existingModel || '',
     validate: (v?: string) => {
       const value = v?.trim() ?? '';
-      if (!value) return 'Model id required';
+      if (!value) return tt('install.custom.modelIdValidate');
       return undefined;
     },
   });
 
   if (p.isCancel(modelResult)) {
-    p.cancel('Installation cancelled.');
+    p.cancel(tt('install.cancelled'));
     process.exit(0);
   }
 
@@ -1125,7 +1148,7 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
 
   // API key: optional for local models (LM Studio, Ollama), required for hosted.
   const apiKeyResult = await p.password({
-    message: 'API key (leave blank for local models that need none):',
+    message: tt('install.custom.apiKeyPrompt'),
     mask: '*',
   });
 
@@ -1141,16 +1164,16 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
   // "disabled" for custom endpoints — faster, cheaper, and avoids the multi-turn
   // reasoning_content round-trip that breaks agent tool-call loops.
   const thinkingResult = await p.select({
-    message: 'Deep thinking (thinking.type):',
+    message: tt('install.custom.thinkingPrompt'),
     initialValue: existingThinking === 'enabled' || existingThinking === 'disabled' ? existingThinking : 'disabled',
     options: [
-      { value: 'disabled', label: 'Disabled (faster, recommended for agent loops)', hint: 'thinking.type: disabled' },
-      { value: 'enabled', label: 'Enabled (deep reasoning before answering)', hint: 'thinking.type: enabled' },
-      { value: '', label: 'Omit (use endpoint default)', hint: 'do not send the param' },
+      { value: 'disabled', label: tt('install.custom.thinkingDisabledLabel'), hint: tt('install.custom.thinkingDisabledHint') },
+      { value: 'enabled', label: tt('install.custom.thinkingEnabledLabel'), hint: tt('install.custom.thinkingEnabledHint') },
+      { value: '', label: tt('install.custom.thinkingOmitLabel'), hint: tt('install.custom.thinkingOmitHint') },
     ],
   });
   if (p.isCancel(thinkingResult)) {
-    p.cancel('Installation cancelled.');
+    p.cancel(tt('install.cancelled'));
     process.exit(0);
   }
   const thinking = typeof thinkingResult === 'string' ? thinkingResult : '';
@@ -1163,21 +1186,16 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
     ...(thinking ? { CLAUDE_MEM_OPENROUTER_THINKING: thinking } : {}),
   });
   if (wrote) {
-    log.info('Saved custom OpenAI-compatible provider configuration to ~/.claude-mem/settings.json');
+    log.info(tt('install.custom.savedConfiguration'));
   }
 
   if (!apiKey) {
-    log.warn(
-      'No API key set. Local models (LM Studio, Ollama) usually need none, '
-        + 'but hosted endpoints will reject requests without one. '
-        + 'Set CLAUDE_MEM_OPENROUTER_API_KEY in settings.json later if needed.',
-    );
+    log.warn(tt('install.custom.noApiKeySetWarning'));
   }
 
   p.note(
-    `Endpoint: ${baseUrl}\nModel: ${model}\nThinking: ${thinking || '(endpoint default)'}\n\n`
-      + 'Settings saved. The next observation will be sent to your custom endpoint.',
-    'Custom provider ready',
+    tt('install.custom.endpointReadyBody', { baseUrl, model, thinking: thinking || '(endpoint default)' }),
+    tt('install.custom.readyTitle'),
   );
   return 'openrouter';
 }
@@ -1192,7 +1210,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       CLAUDE_MEM_PROVIDER: 'claude',
       CLAUDE_MEM_CLAUDE_AUTH_METHOD: resolvedAuthMethod,
     });
-    if (wrote) log.info('Saved Claude Agent SDK configuration to ~/.claude-mem/settings.json');
+    if (wrote) log.info(tt('install.provider.savedConfiguration'));
   };
 
   const useSubscriptionAuth = () => {
@@ -1202,22 +1220,22 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       ANTHROPIC_BASE_URL: '',
       ANTHROPIC_AUTH_TOKEN: '',
     });
-    log.info('Configured claude-mem to use your logged-in Claude SDK account.');
+    log.info(tt('install.provider.configuredSubscription'));
   };
 
   const configureDirectApiKey = async (): Promise<void> => {
     const existing = loadClaudeMemEnv().ANTHROPIC_API_KEY || '';
     if (existing.trim().length > 0) {
       const choice = await p.select<'keep' | 'replace'>({
-        message: 'An Anthropic API key is already configured. Keep it or enter a new one?',
+        message: tt('install.provider.apiKeyExisting'),
         options: [
-          { value: 'keep', label: 'Keep existing key' },
-          { value: 'replace', label: 'Enter a new key (rotate)' },
+          { value: 'keep', label: tt('install.provider.keepExistingKey') },
+          { value: 'replace', label: tt('install.provider.enterNewKey') },
         ],
         initialValue: 'keep',
       });
       if (p.isCancel(choice)) {
-        log.warn('API key prompt cancelled — leaving existing configuration untouched.');
+        log.warn(tt('install.provider.keyPromptCancelled'));
         return;
       }
       if (choice === 'keep') {
@@ -1232,13 +1250,13 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     }
 
     const apiKeyResult = await p.password({
-      message: 'Paste your Anthropic API key:',
+      message: tt('install.provider.pasteKey', { provider: 'Anthropic' }),
       mask: '*',
-      validate: (v?: string) => (!v || v.trim().length === 0) ? 'API key required' : undefined,
+      validate: (v?: string) => (!v || v.trim().length === 0) ? tt('install.provider.apiKeyRequired') : undefined,
     });
 
     if (p.isCancel(apiKeyResult)) {
-      log.warn('API key prompt cancelled — leaving existing configuration untouched.');
+      log.warn(tt('install.provider.keyPromptCancelled'));
       return;
     }
 
@@ -1248,35 +1266,35 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       ANTHROPIC_AUTH_TOKEN: '',
     });
     persistClaudeProvider('api-key');
-    log.info('Saved Anthropic API key for the Claude Agent SDK path.');
+    log.info(tt('install.provider.savedApiKey'));
   };
 
   const configureGateway = async (): Promise<void> => {
     const existing = loadClaudeMemEnv();
     const baseUrlResult = await p.text({
-      message: 'Gateway URL:',
-      placeholder: existing.ANTHROPIC_BASE_URL || 'http://localhost:4000',
+      message: tt('install.provider.gatewayUrlPrompt'),
+      placeholder: existing.ANTHROPIC_BASE_URL || tt('install.provider.gatewayUrlPlaceholder'),
       defaultValue: existing.ANTHROPIC_BASE_URL || '',
       validate: (v?: string) => {
         const value = v?.trim() ?? '';
-        if (!value) return 'Gateway URL required';
+        if (!value) return tt('install.provider.gatewayUrlRequired');
         try {
           new URL(value);
           return undefined;
         } catch {
           // [ANTI-PATTERN IGNORED]: a URL parse failure here just means the user typed an invalid gateway URL; the recovery is the inline validation message the prompt displays on every attempt.
-          return 'Enter a valid URL, for example http://localhost:4000';
+          return tt('install.provider.gatewayUrlValidate');
         }
       },
     });
 
     if (p.isCancel(baseUrlResult)) {
-      log.warn('Gateway setup cancelled — leaving existing configuration untouched.');
+      log.warn(tt('install.provider.gatewaySetupCancelled'));
       return;
     }
 
     const tokenResult = await p.password({
-      message: 'Gateway key/token (leave blank to keep current token, or type a new one):',
+      message: tt('install.provider.gatewayKeyPrompt'),
       mask: '*',
     });
 
@@ -1292,9 +1310,9 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     saveClaudeMemEnv(env);
     persistClaudeProvider('gateway');
     if (tokenCancelled || tokenInput.length === 0) {
-      log.info('Gateway URL saved; existing gateway token preserved.');
+      log.info(tt('install.provider.gatewayUrlSaved'));
     } else {
-      log.info('Configured Claude Agent SDK gateway in ~/.claude-mem/.env.');
+      log.info(tt('install.provider.gatewayConfigured'));
     }
   };
 
@@ -1311,8 +1329,8 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         return await configureCustomProvider(options);
       }
       const wrote = mergeSettings({ CLAUDE_MEM_PROVIDER: options.provider });
-      if (wrote) log.info(`Saved provider=${options.provider} to ~/.claude-mem/settings.json`);
-      log.warn(`Provider=${options.provider} requested non-interactively. API key prompt skipped — set CLAUDE_MEM_${options.provider.toUpperCase()}_API_KEY and CLAUDE_MEM_PROVIDER in settings.json or env manually if not already set.`);
+      if (wrote) log.info(tt('install.provider.nonInteractiveSaved', { provider: options.provider }));
+      log.warn(tt('install.provider.nonInteractiveSkipped', { provider: options.provider, providerUpper: options.provider.toUpperCase() }));
       return options.provider;
     }
     return initialProvider;
@@ -1324,16 +1342,16 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       resolvedAuthMethod === 'subscription' ? 'subscription' : 'api-key';
 
     const result = await p.select<ClaudeAccessMode>({
-      message: 'Do you use a subscription plan or an API key/gateway for the memory agent?',
+      message: tt('install.provider.subOrApiKeyPrompt'),
       options: [
-        { value: 'subscription', label: 'Subscription plan (recommended — uses your logged-in Claude SDK account)' },
-        { value: 'api-key', label: 'API key or gateway (Anthropic, LiteLLM, or compatible proxy)' },
+        { value: 'subscription', label: tt('install.provider.subLabel') },
+        { value: 'api-key', label: tt('install.provider.apiKeyLabel') },
       ],
       initialValue: initialAccessMode,
     });
 
     if (p.isCancel(result)) {
-      p.cancel('Installation cancelled.');
+      p.cancel(tt('install.cancelled'));
       process.exit(0);
     }
     if (result === 'subscription') {
@@ -1342,16 +1360,16 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     }
 
     const apiModeResult = await p.select<ClaudeApiMode>({
-      message: 'How should claude-mem connect?',
+      message: tt('install.provider.howConnectPrompt'),
       options: [
-        { value: 'direct', label: 'Anthropic API key' },
-        { value: 'gateway', label: 'LiteLLM or custom gateway' },
+        { value: 'direct', label: tt('install.provider.directLabel') },
+        { value: 'gateway', label: tt('install.provider.gatewayLabel') },
       ],
       initialValue: resolvedAuthMethod === 'gateway' || loadClaudeMemEnv().ANTHROPIC_BASE_URL ? 'gateway' : 'direct',
     });
 
     if (p.isCancel(apiModeResult)) {
-      p.cancel('Installation cancelled.');
+      p.cancel(tt('install.cancelled'));
       process.exit(0);
     }
 
@@ -1372,7 +1390,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     const labels = await buildProviderLabels();
 
     const providerResult = await p.select<ProviderChoice>({
-      message: 'Which memory provider do you want to use?',
+      message: tt('install.provider.whichPrompt'),
       options: [
         { value: 'cmem', label: labels.cmem, hint: labels.cmemHint },
         { value: 'openrouter', label: labels.openrouter },
@@ -1383,7 +1401,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       initialValue: 'cmem',
     });
     if (p.isCancel(providerResult)) {
-      p.cancel('Installation cancelled.');
+      p.cancel(tt('install.cancelled'));
       process.exit(0);
     }
     selectedProvider = providerResult;
@@ -1394,23 +1412,21 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   // so "use the CMEM observer model" is four settings writes and nothing else.
   if (selectedProvider === 'cmem') {
     p.note(
-      `${CMEM_PRO_TRIAL_DAYS} days free, then $${CMEM_PRO_MONTHLY_USD}/mo — card required, cancel anytime.\n`
-        + `Opening ${CMEM_PRO_SIGNUP_URL}\n`
-        + "Sign in, start your free week, and copy the key you're shown.",
-      `cmem Pro — ${CMEM_PRO_TRIAL_DAYS} days free`,
+      tt('install.provider.cmemProNote', { days: CMEM_PRO_TRIAL_DAYS, price: CMEM_PRO_MONTHLY_USD, url: CMEM_PRO_SIGNUP_URL }),
+      tt('install.provider.cmemProTitle', { days: CMEM_PRO_TRIAL_DAYS }),
     );
     openBrowser(CMEM_PRO_SIGNUP_URL);
 
     const keyResult = await p.text({
-      message: 'Paste your CMEM Pro key (starts with cm_pro_):',
+      message: tt('install.provider.cmemProKeyPrompt'),
       validate: (v?: string) =>
         CMEM_PRO_KEY_PATTERN.test((v ?? '').trim())
           ? undefined
-          : 'That does not look like a CMEM Pro key.',
+          : tt('install.provider.cmemProKeyInvalid'),
     });
 
     if (p.isCancel(keyResult)) {
-      p.cancel('Installation cancelled.');
+      p.cancel(tt('install.cancelled'));
       process.exit(0);
     }
 
@@ -1420,11 +1436,11 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       CLAUDE_MEM_OPENROUTER_MODEL: CMEM_PRO_MODEL,
       CLAUDE_MEM_OPENROUTER_API_KEY: String(keyResult).trim(),
     });
-    if (wrote) log.info('Saved CMEM Pro configuration to ~/.claude-mem/settings.json');
+    if (wrote) log.info(tt('install.provider.savedCmemPro'));
 
     p.note(
-      'Next: finish cloud sync in the browser — press NEXT on the page.',
-      'CMEM Pro ready',
+      tt('install.provider.cmemProNextNote'),
+      tt('install.provider.cmemProReadyTitle'),
     );
     return 'openrouter';
   }
@@ -1450,18 +1466,18 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   const existingKey = getSetting(keyEnvName as keyof SettingsDefaults) as string | undefined;
   if (existingKey && existingKey.trim().length > 0) {
     const wrote = mergeSettings({ CLAUDE_MEM_PROVIDER: selectedProvider });
-    if (wrote) log.info(`Saved provider=${selectedProvider} to ~/.claude-mem/settings.json`);
+    if (wrote) log.info(tt('install.provider.savedProvider', { value: selectedProvider }));
     return selectedProvider;
   }
 
   const apiKeyResult = await p.password({
-    message: `Paste your ${providerLabel} API key:`,
+    message: tt('install.provider.providerLabel', { providerLabel }),
     mask: '*',
-    validate: (v?: string) => (!v || v.trim().length === 0) ? 'API key required' : undefined,
+    validate: (v?: string) => (!v || v.trim().length === 0) ? tt('install.provider.apiKeyRequired') : undefined,
   });
 
   if (p.isCancel(apiKeyResult)) {
-    log.warn(`API key prompt cancelled — falling back to Claude provider.`);
+    log.warn(tt('install.provider.keyCancelledFallback'));
     persistClaudeProvider();
     return 'claude';
   }
@@ -1472,7 +1488,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     [keyEnvName]: apiKey,
   });
   if (wrote) {
-    log.info(`Saved provider=${selectedProvider} to ~/.claude-mem/settings.json`);
+    log.info(tt('install.provider.savedProvider', { value: selectedProvider }));
   }
   return selectedProvider;
 }
@@ -1488,19 +1504,19 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
   if (options.model && !allowCustomModel) {
     if (!allowed.has(options.model)) {
       throw new Error(
-        `Unknown Claude model: ${options.model}. Allowed: ${[...allowed].join(', ')}`,
+        tt('install.model.unknownError', { value: options.model, allowed: [...allowed].join(', ') }),
       );
     }
     const wrote = mergeSettings({ CLAUDE_MEM_MODEL: options.model });
     if (wrote) {
-      log.info(`Saved Claude model=${options.model} to ~/.claude-mem/settings.json`);
+      log.info(tt('install.model.saved', { value: options.model }));
     }
     return;
   }
   if (options.model && allowCustomModel) {
     const wrote = mergeSettings({ CLAUDE_MEM_MODEL: options.model });
     if (wrote) {
-      log.info(`Saved gateway model=${options.model} to ~/.claude-mem/settings.json`);
+      log.info(tt('install.model.saved', { value: options.model }));
     }
     return;
   }
@@ -1511,21 +1527,21 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
 
   if (allowCustomModel) {
     const result = await p.text({
-      message: 'Which model should the gateway use?',
+      message: tt('install.model.gatewayPrompt'),
       placeholder: 'claude-haiku-4-5-20251001',
       defaultValue: initialModel || 'claude-haiku-4-5-20251001',
-      validate: (v?: string) => (!v || v.trim().length === 0) ? 'Model required' : undefined,
+      validate: (v?: string) => (!v || v.trim().length === 0) ? tt('install.model.required') : undefined,
     });
 
     if (p.isCancel(result)) {
-      p.cancel('Installation cancelled.');
+      p.cancel(tt('install.cancelled'));
       process.exit(0);
     }
 
     const selectedModel = String(result).trim();
     const wrote = mergeSettings({ CLAUDE_MEM_MODEL: selectedModel });
     if (wrote) {
-      log.info(`Saved gateway model=${selectedModel} to ~/.claude-mem/settings.json`);
+      log.info(tt('install.model.saved', { value: selectedModel }));
     }
     return;
   }
@@ -1533,24 +1549,24 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
   const initialValue = allowed.has(initialModel) ? initialModel : 'claude-haiku-4-5-20251001';
 
   const result = await p.select<string>({
-    message: 'Which Claude model should claude-mem use to compress observations?\nThis runs whenever you and Claude touch a file — keep it cheap and fast.',
+    message: tt('install.model.whichPrompt'),
     options: [
-      { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (recommended — fast, cheap, great for compression)' },
-      { value: 'claude-sonnet-5', label: 'Sonnet 5 (balanced quality and cost)' },
-      { value: 'claude-opus-4-8', label: 'Opus 4.8 (highest quality, most expensive)' },
+      { value: 'claude-haiku-4-5-20251001', label: tt('install.model.haikuLabel') },
+      { value: 'claude-sonnet-5', label: tt('install.model.sonnetLabel') },
+      { value: 'claude-opus-4-8', label: tt('install.model.opusLabel') },
     ],
     initialValue,
   });
 
   if (p.isCancel(result)) {
-    p.cancel('Installation cancelled.');
+    p.cancel(tt('install.cancelled'));
     process.exit(0);
   }
   const selectedModel = result as string;
 
   const wrote = mergeSettings({ CLAUDE_MEM_MODEL: selectedModel });
   if (wrote) {
-    log.info(`Saved Claude model=${selectedModel} to ~/.claude-mem/settings.json`);
+    log.info(tt('install.model.saved', { value: selectedModel }));
   }
 }
 
@@ -1578,8 +1594,6 @@ const TRIAL_POLL_TIMEOUT_MS = 10_000;
 const TRIAL_POLL_BUDGET_MS = 240_000;
 /** Poll cadence fallback when the start response omits poll_interval. */
 const TRIAL_DEFAULT_POLL_INTERVAL_S = 3;
-const TRIAL_UNREACHABLE_WARNING = "Couldn't reach cmem.ai — start the trial later with npx claude-mem install";
-const TRIAL_FINISH_LATER_WARNING = 'No worries — finish anytime: npx claude-mem install';
 
 interface TrialPairing {
   pairingId: string;
@@ -1784,25 +1798,25 @@ async function promptProTrialOptIn(version: string): Promise<TrialPairing | null
     if (prior.state !== 'link_sent') return null;
 
     const resendChoice = await p.confirm({
-      message: `You started a cmem Pro trial earlier — send a fresh sign-in link to ${prior.email}?`,
+      message: tt('install.trial.resendPrompt', { email: prior.email }),
       initialValue: false,
     });
     if (p.isCancel(resendChoice) || resendChoice !== true) return null;
 
     const spin = p.spinner();
-    spin.start(`Resending your cmem Pro sign-in link to ${prior.email}…`);
+    spin.start(tt('install.trial.resending', { email: prior.email }));
     const resendStartedAt = Date.now();
     const pairing = await startTrialPairing(prior.email);
     if (!pairing) {
-      spin.stop(styleText('yellow', 'Could not resend the sign-in link.'));
-      log.warn(TRIAL_UNREACHABLE_WARNING);
+      spin.stop(styleText('yellow', tt('install.trial.resendFailed')));
+      log.warn(tt('install.trial.unreachableWarning'));
       return null;
     }
     mergeSettings({ CLAUDE_MEM_PRO_TRIAL_AT: new Date().toISOString() });
-    spin.stop('Sign-in link resent.');
+    spin.stop(tt('install.trial.linkResent'));
     p.note(
-      'Check your email — click the sign-in link and add a card ($0 today).\nInstall continues; we pick it up automatically.',
-      'Link sent',
+      tt('install.trial.linkSentBody'),
+      tt('install.trail.linkSentTitle'),
     );
     noteTrialUserCode(pairing);
     await captureCliEvent('trial_link_sent', { version, duration_ms: Date.now() - resendStartedAt });
@@ -1818,27 +1832,21 @@ async function promptProTrialOptIn(version: string): Promise<TrialPairing | null
 
   p.note(
     [
-      styleText(['bold', 'cyan'], 'Free week of Pro: cloud memory generation + sync across machines.'),
+      styleText(['bold', 'cyan'], tt('install.trial.freeWeekNote').split('\n')[0]),
       '',
-      'Memory generation runs on our metered models instead of your',
-      `Anthropic plan — the default Haiku path burns ~$${haikuPer1k}/1k observations`,
-      "of your plan's tokens; Pro takes $0 from it.",
-      `${CMEM_PRO_TRIAL_DAYS} days free, then $${CMEM_PRO_MONTHLY_USD}/mo — card required, cancel anytime.`,
-      '',
-      "Enter your email to start (we'll send a sign-in link) — or press",
-      'Enter to skip and use local generation.',
+      tt('install.trial.freeWeekNote', { price: haikuPer1k, days: CMEM_PRO_TRIAL_DAYS }).split('\n').slice(1).join('\n'),
     ].join('\n'),
-    `cmem Pro — ${CMEM_PRO_TRIAL_DAYS} days free`,
+    tt('install.trial.freeWeekTitle', { days: CMEM_PRO_TRIAL_DAYS }),
   );
 
   const emailResult = await p.text({
-    message: 'Your email (press Enter to skip):',
-    placeholder: 'you@company.com',
+    message: tt('install.trial.emailPrompt'),
+    placeholder: tt('install.trial.emailPlaceholder'),
     defaultValue: '',
     validate: (v?: string) => {
       const value = (v ?? '').trim();
       if (value.length === 0) return undefined; // empty = skip, not an error
-      if (!SIGNUP_EMAIL_RE.test(value)) return "That doesn't look like an email — fix it, or clear the field to skip.";
+      if (!SIGNUP_EMAIL_RE.test(value)) return tt('install.trial.emailInvalid');
       return undefined;
     },
   });
@@ -1850,15 +1858,15 @@ async function promptProTrialOptIn(version: string): Promise<TrialPairing | null
   await captureCliEvent('trial_email_submitted', { version });
 
   const spin = p.spinner();
-  spin.start('Starting your free week — sending the sign-in link…');
+  spin.start(tt('install.trial.starting'));
   const startRequestAt = Date.now();
   const pairing = await startTrialPairing(email);
   if (!pairing) {
-    spin.stop(styleText('yellow', 'Could not start the trial.'));
+    spin.stop(styleText('yellow', tt('install.trial.startFailed')));
     // NOT fail-silent (unlike the old waitlist opt-in): the user typed an
     // email expecting something to happen, so say what went wrong and how to
     // retry. Nothing is persisted, so the next install re-offers the trial.
-    log.warn(TRIAL_UNREACHABLE_WARNING);
+    log.warn(tt('install.trial.unreachableWarning'));
     return null;
   }
 
@@ -1871,10 +1879,10 @@ async function promptProTrialOptIn(version: string): Promise<TrialPairing | null
     CLAUDE_MEM_PRO_TRIAL_AT: new Date().toISOString(),
     CLAUDE_MEM_PRO_TRIAL_STATE: 'link_sent',
   });
-  spin.stop('Sign-in link sent.');
+  spin.stop(tt('install.trial.linkSent'));
   p.note(
-    'Check your email — click the sign-in link and add a card ($0 today).\nInstall continues; we pick it up automatically.',
-    'Link sent',
+    tt('install.trial.linkSentBody'),
+    tt('install.trail.linkSentTitle'),
   );
   noteTrialUserCode(pairing);
   await captureCliEvent('trial_link_sent', { version, duration_ms: Date.now() - startRequestAt });
@@ -1894,14 +1902,14 @@ async function promptProTrialOptIn(version: string): Promise<TrialPairing | null
 async function completeTrialPairing(pairing: TrialPairing, version: string): Promise<'openrouter' | null> {
   const startedAt = Date.now();
   const stageMessages: Record<TrialPollStage, string> = {
-    awaiting_login: 'Waiting for you to click the sign-in link…',
-    awaiting_checkout: 'Waiting for checkout ($0 today)…',
+    awaiting_login: tt('install.trial.waitingLogin'),
+    awaiting_checkout: tt('install.trial.waitingCheckout'),
     // Device-approval stage: the human types the user code shown at opt-in
     // into the browser. Generic copy when an older-contract server never sent
     // a code but still (unexpectedly) reports this stage — never crash on it.
     awaiting_approval: pairing.userCode
-      ? `Enter code ${pairing.userCode} in the browser to approve this device…`
-      : 'Waiting for approval in the browser…',
+      ? tt('install.trial.waitingApproval', { code: pairing.userCode })
+      : tt('install.trial.waitingApprovalGeneric'),
   };
   let stage: TrialPollStage = 'awaiting_login';
 
@@ -1909,9 +1917,9 @@ async function completeTrialPairing(pairing: TrialPairing, version: string): Pro
   // Ctrl+C during a spinner into a clean exit of the WHOLE installer (the
   // ETX fallback below only catches the rare press clack misses), so tell
   // the user exactly that before the wait begins.
-  log.info(styleText('dim', 'Ctrl+C exits — finish anytime with npx claude-mem install'));
+  log.info(styleText('dim', tt('install.trial.ctrlCExit')));
 
-  const spin = p.spinner({ cancelMessage: 'Stopped waiting for the browser steps.' });
+  const spin = p.spinner({ cancelMessage: tt('install.trial.stoppedWaiting') });
   spin.start(stageMessages[stage]);
 
   // Ctrl+C handling. The preceding prompt's readline close() leaves stdin
@@ -1934,8 +1942,8 @@ async function completeTrialPairing(pairing: TrialPairing, version: string): Pro
   const wasCancelled = (): boolean => spin.isCancelled || ctrlCPressed;
 
   const bailCancelled = async (): Promise<null> => {
-    if (!spin.isCancelled) spin.cancel('Stopped waiting for the browser steps.');
-    log.warn(TRIAL_FINISH_LATER_WARNING);
+    if (!spin.isCancelled) spin.cancel(tt('install.trial.stoppedWaiting'));
+    log.warn(tt('install.trial.finishLaterWarning'));
     await captureCliEvent('trial_poll_timeout', {
       version,
       stage,
@@ -1973,26 +1981,26 @@ async function completeTrialPairing(pairing: TrialPairing, version: string): Pro
           // mergeSettings already logged the write error. The setup token was
           // delivered exactly once and is now lost — fall back to the normal
           // provider prompt rather than pretending Pro is configured.
-          spin.stop(styleText('yellow', 'Could not save cmem Pro settings.'));
-          log.warn(TRIAL_FINISH_LATER_WARNING);
+          spin.stop(styleText('yellow', tt('install.trial.startFailed')));
+          log.warn(tt('install.trial.finishLaterWarning'));
           return null;
         }
         const endsAt = result.trialEndsAt ? new Date(result.trialEndsAt) : null;
         const endsAtLabel = endsAt && !Number.isNaN(endsAt.getTime())
           ? endsAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
           : `in ${CMEM_PRO_TRIAL_DAYS} days`;
-        spin.stop('cmem Pro credentials received.');
+        spin.stop(tt('install.trail.credentialsReceived'));
         p.note(
-          `✓ Free week active — cloud generation + sync ON.\n$${CMEM_PRO_MONTHLY_USD}/mo starts ${endsAtLabel}; cancel anytime at cmem.ai.`,
-          'cmem Pro ready',
+          tt('install.trial.readyBody', { price: CMEM_PRO_MONTHLY_USD, date: endsAtLabel }),
+          tt('install.trial.readyTitle'),
         );
         await captureCliEvent('trial_activated', { version, duration_ms: Date.now() - startedAt });
         return 'openrouter';
       }
 
       if (result.kind === 'gone') {
-        spin.stop(styleText('yellow', 'That sign-in link has expired.'));
-        log.warn(TRIAL_FINISH_LATER_WARNING);
+        spin.stop(styleText('yellow', tt('install.trial.linkExpired')));
+        log.warn(tt('install.trial.finishLaterWarning'));
         await captureCliEvent('trial_poll_timeout', {
           version,
           stage,
@@ -2005,8 +2013,8 @@ async function completeTrialPairing(pairing: TrialPairing, version: string): Pro
       if (result.kind === 'unreachable') {
         consecutiveFailures += 1;
         if (consecutiveFailures >= 3) {
-          spin.stop(styleText('yellow', 'cmem.ai is not responding.'));
-          log.warn(TRIAL_UNREACHABLE_WARNING);
+          spin.stop(styleText('yellow', tt('install.trial.notResponding')));
+          log.warn(tt('install.trial.unreachableWarning'));
           await captureCliEvent('trial_poll_timeout', {
             version,
             stage,
@@ -2027,8 +2035,8 @@ async function completeTrialPairing(pairing: TrialPairing, version: string): Pro
     }
 
     if (wasCancelled()) return bailCancelled();
-    spin.stop(styleText('yellow', 'Still waiting on the browser steps — moving on.'));
-    log.warn(TRIAL_FINISH_LATER_WARNING);
+    spin.stop(styleText('yellow', tt('install.trial.stillWaiting')));
+    log.warn(tt('install.trial.finishLaterWarning'));
     await captureCliEvent('trial_poll_timeout', {
       version,
       stage,
@@ -2060,12 +2068,11 @@ async function promptTelemetryOptIn(): Promise<void> {
   const existing = loadTelemetryConfig();
   if (existing?.enabled !== undefined) return;
 
-  p.log.message(styleText('dim', 
-    'Anonymous install ID only — no prompts, file paths, code, or project names, ever.\n'
-    + 'Details: https://docs.claude-mem.ai/telemetry · Change anytime: claude-mem telemetry disable',
+  p.log.message(styleText('dim',
+    tt('install.telemetry.message'),
   ));
   const consent = await p.confirm({
-    message: 'Share anonymized usage data with CMEM? It is on by default and helps us make the product better.',
+    message: tt('install.telemetry.prompt'),
     initialValue: true,
   });
   if (p.isCancel(consent)) return;
@@ -2075,7 +2082,7 @@ async function promptTelemetryOptIn(): Promise<void> {
     installId: existing?.installId || randomUUID(),
     decidedAt: new Date().toISOString(),
   });
-  log.success(consent ? 'Thanks! Anonymized usage sharing is on.' : 'No problem — telemetry is off.');
+  log.success(consent ? tt('install.telemetry.enabled') : tt('install.telemetry.disabled'));
 }
 
 export interface InstallOptions {
@@ -2117,11 +2124,11 @@ export async function runInstallCommand(options: InstallOptions = {}): Promise<v
       // remediation headline and exit non-zero. ABORT must never reach the
       // "Installation Complete" path.
       flushSummary(summary, (line) => (isInteractive ? p.log.message(line) : console.error(`  ${line}`)));
-      const headline = `Installation Aborted: ${err.category.id}`;
+      const headline = tt('install.status.aborted', { categoryId: err.category.id });
       if (isInteractive) {
         p.log.error(headline);
         p.log.error(err.remediation);
-        p.outro(styleText('red', 'claude-mem installation aborted.'));
+        p.outro(styleText('red', tt('install.status.abortedMessage')));
       } else {
         console.error(`\n  ${headline}`);
         console.error(`  ${err.remediation}`);
@@ -2134,6 +2141,7 @@ export async function runInstallCommand(options: InstallOptions = {}): Promise<v
 }
 
 async function runInstallCommandInner(options: InstallOptions, summary: InstallSummary): Promise<void> {
+  await resolveInstallLocale();
   const installStartedAt = Date.now();
   const version = readPluginVersion();
   // Captured by the runtime-setup task below; reported on install_completed
@@ -2178,12 +2186,12 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   if (alreadyInstalled) {
     if (process.stdin.isTTY) {
       const shouldContinue = await p.confirm({
-        message: 'Overwrite existing installation?',
+        message: tt('install.status.overwritePrompt'),
         initialValue: true,
       });
 
       if (p.isCancel(shouldContinue) || !shouldContinue) {
-        p.cancel('Installation cancelled.');
+        p.cancel(tt('install.cancelled'));
         process.exit(0);
       }
     }
@@ -2195,8 +2203,8 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     const allIDEs = detectInstalledIDEs();
     const match = allIDEs.find((i) => i.id === options.ide);
     if (!match) {
-      log.error(`Unknown IDE: ${options.ide}`);
-      log.info(`Available IDEs: ${allIDEs.map((i) => i.id).join(', ')}`);
+      log.error(tt('install.status.unknownIde', { ide: options.ide }));
+      log.info(tt('install.status.availableIdes', { ides: allIDEs.map((i) => i.id).join(', ') }));
       process.exit(1);
     }
   } else if (process.stdin.isTTY) {
@@ -2233,68 +2241,70 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     if (needsMarketplace) {
       const installPort = getSetting('CLAUDE_MEM_WORKER_PORT');
       const shutdownSpinner = isInteractive ? p.spinner() : null;
-      shutdownSpinner?.start('Stopping running worker (so we can overwrite cleanly)…');
+      shutdownSpinner?.start(tt('install.workerShutdown.stopping'));
       try {
         const result = await shutdownWorkerAndWait(installPort, 10000);
-        const stopMessage = result.workerWasRunning ? 'Stopped running worker before overwrite.' : 'No worker running — proceeding.';
+        const stopMessage = result.workerWasRunning
+          ? tt('install.workerShutdown.stoppedMessage')
+          : tt('install.workerShutdown.noWorkerMessage');
         if (shutdownSpinner) {
           shutdownSpinner.stop(stopMessage);
         } else if (result.workerWasRunning) {
-          log.info('Stopped running worker before overwrite.');
+          log.info(tt('install.workerShutdown.logStopped'));
         }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         if (shutdownSpinner) {
-          shutdownSpinner.error(`Pre-overwrite worker shutdown failed: ${message}`);
+          shutdownSpinner.error(tt('install.workerShutdown.failed', { message }));
         } else {
-          console.warn('[install] Pre-overwrite worker shutdown failed:', message);
+          console.warn(`[install] ${tt('install.workerShutdown.failed', { message })}`);
         }
       }
     }
 
     const tasks: TaskDescriptor[] = [
       {
-        title: 'Caching plugin version',
+        title: tt('install.task.cachingTitle'),
         task: async (message) => {
-          message(`Caching v${version}...`);
+          message(tt('install.task.cachingMessage', { version }));
           copyPluginToCache(version);
-          return `Plugin cached (v${version}) ${styleText('green', 'OK')}`;
+          return `${tt('install.task.pluginCached', { version })} ${styleText('green', 'OK')}`;
         },
       },
       {
-        title: 'Registering marketplace',
+        title: tt('install.task.marketplaceTitle'),
         task: async () => {
           registerMarketplace();
-          return `Marketplace registered ${styleText('green', 'OK')}`;
+          return `${tt('install.task.marketplaceDone')} ${styleText('green', 'OK')}`;
         },
       },
       {
-        title: 'Registering plugin',
+        title: tt('install.task.pluginTitle'),
         task: async () => {
           registerPlugin(version);
-          return `Plugin registered ${styleText('green', 'OK')}`;
+          return `${tt('install.task.pluginDone')} ${styleText('green', 'OK')}`;
         },
       },
       {
-        title: 'Enabling plugin in Claude settings',
+        title: tt('install.task.enablingTitle'),
         task: async () => {
           enablePluginInClaudeSettings();
-          return `Plugin enabled ${styleText('green', 'OK')}`;
+          return `${tt('install.task.enablingDone')} ${styleText('green', 'OK')}`;
         },
       },
       {
-        title: 'Setting up runtime (first install can take ~30s)',
+        title: tt('install.task.runtimeTitle'),
         task: async (message) => {
-          message('Checking Bun…');
+          message(tt('install.task.checkingBun'));
           const { version: bunVersion } = await ensureBun(summary);
-          message('Checking uv…');
+          message(tt('install.task.checkingUv'));
           const { version: uvVersion } = await ensureUv(summary);
           installedBunVersion = bunVersion;
           installedUvVersion = uvVersion;
           const cacheDir = pluginCacheDirectory(version);
           if (!isInstallCurrent(cacheDir, version)) {
             const { bunPath } = await ensureBun();
-            const stopHeartbeat = startHeartbeat(message, 'Installing plugin dependencies (bun install)…');
+            const stopHeartbeat = startHeartbeat(message, tt('install.task.installingDeps'));
             try {
               await installPluginDependencies(cacheDir, bunPath);
             } finally {
@@ -2303,28 +2313,28 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
             writeInstallMarker(cacheDir, version, bunVersion, uvVersion);
           }
           writeInstallMarker(join(marketplaceDirectory(), 'plugin'), version, bunVersion, uvVersion);
-          return `Runtime ready (Bun ${bunVersion}, uv ${uvVersion}) ${styleText('green', 'OK')}`;
+          return `${tt('install.task.runtimeReady', { bunVersion, uvVersion })} ${styleText('green', 'OK')}`;
         },
       },
     ];
 
     if (needsMarketplace) {
       tasks.unshift({
-        title: 'Copying plugin files to marketplace',
+        title: tt('install.status.copyingToMarketplace'),
         task: async (message) => {
-          message('Copying to marketplace directory...');
+          message(tt('install.status.copyingToMarketplaceMsg'));
           copyPluginToMarketplace();
-          return `Plugin files copied ${styleText('green', 'OK')}`;
+          return `${tt('install.status.pluginFilesCopied')} ${styleText('green', 'OK')}`;
         },
       });
       tasks.push({
-        title: 'Installing marketplace dependencies',
+        title: tt('install.status.installingMarketplaceDeps'),
         task: async (message) => {
           // runNpmInstallInMarketplace throws InstallAbortError on a real
           // failure (non-ERESOLVE, or ERESOLVE that --legacy-peer-deps could
           // not fix). We deliberately do NOT swallow it here — the top-level
           // handler turns it into "Installation Aborted" + exit 1.
-          const stopHeartbeat = startHeartbeat(message, 'Running npm install…');
+          const stopHeartbeat = startHeartbeat(message, tt('install.status.runningNpmInstall'));
           try {
             await runNpmInstallInMarketplace(summary);
             writeMarketplaceInstallMarkers(
@@ -2336,7 +2346,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
           } finally {
             stopHeartbeat();
           }
-          return `Dependencies installed ${styleText('green', 'OK')}`;
+          return `${tt('install.status.dependenciesInstalled')} ${styleText('green', 'OK')}`;
         },
       });
     }
@@ -2359,9 +2369,9 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       const wrote = disableClaudeAutoMemory();
       autoMemoryStatus = wrote ? 'disabled' : 'already-disabled';
       if (wrote) {
-        log.success('Claude Code: auto-memory disabled (CLAUDE_CODE_DISABLE_AUTO_MEMORY=1).');
+        log.success(tt('install.status.autoMemoryDisabled'));
       } else {
-        log.info('Claude Code: auto-memory already disabled, leaving settings.json untouched.');
+        log.info(tt('install.status.autoMemoryAlreadyDisabled'));
       }
     } catch (error: unknown) {
       // Don't fail the install over this — WARN_CONTINUE via the central handler.
@@ -2376,7 +2386,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     }
   } else if (autoMemoryChoice === 'leave-enabled') {
     autoMemoryStatus = 'left-enabled';
-    log.info('Claude Code: leaving native auto-memory enabled unless you explicitly opt in to disabling it.');
+    log.info(tt('install.status.autoMemoryLeftEnabled'));
   }
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
@@ -2387,15 +2397,15 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
 
   await runTasks([
     {
-      title: selectedRuntime === 'server' ? 'Starting server daemon' : 'Starting worker daemon',
+      title: selectedRuntime === 'server' ? tt('install.status.startingServer') : tt('install.status.startingWorker'),
       task: async (message) => {
         if (selectedRuntime === 'server') {
-          return `Server runtime selected — start it with ${styleText('bold', 'npx claude-mem server start')} ${styleText('dim', '(or via Docker compose)')}`;
+          return tt('install.status.serverSelected');
         }
         if (autoStartSkipped) {
           return isInteractive
-            ? `Skipped (--no-auto-start)`
-            : `Skipped (non-TTY)`;
+            ? tt('install.status.skippedNoAutoStart')
+            : tt('install.status.skippedNonTty');
         }
         const port = Number(getSetting('CLAUDE_MEM_WORKER_PORT'));
         const marketplaceScriptPath = join(marketplaceDirectory(), 'plugin', 'scripts', 'worker-service.cjs');
@@ -2403,15 +2413,15 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         const scriptPath = existsSync(marketplaceScriptPath) ? marketplaceScriptPath : cacheScriptPath;
         // selectedRuntime is narrowed to 'worker' here: the server case
         // returned above and never reaches the worker-service spawner.
-        message(`Spawning worker on port ${port}...`);
+        message(tt('install.status.spawningWorker', { port }));
         workerStartResult = await ensureWorkerStarted(port, scriptPath);
         switch (workerStartResult) {
           case 'ready':
-            return `Worker ready at http://localhost:${port} ${styleText('green', 'OK')}`;
+            return `${tt('install.status.workerReady', { port })} ${styleText('green', 'OK')}`;
           case 'warming':
-            return `Worker starting on port ${port} — finishing in background ${styleText('yellow', '⏳')}`;
+            return `${tt('install.status.workerStarting', { port })} ${styleText('yellow', '⏳')}`;
           case 'dead':
-            return `Worker did not start — try \`npx claude-mem start\` manually ${styleText('yellow', '!')}`;
+            return `${tt('install.status.workerNotStarted')} ${styleText('yellow', '!')}`;
         }
       },
     },
@@ -2422,26 +2432,26 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // (which captures failures that happen AFTER bufferConsole returns), not a
   // stale local count.
   const hasFailures = summary.failedIDEs.length > 0;
-  const installStatus = hasFailures ? 'Installation Partial' : 'Installation Complete';
+  const installStatus = hasFailures ? tt('install.status.partial') : tt('install.status.complete');
   const summaryLines = [
-    `Version:     ${styleText('cyan', version)}`,
-    `Plugin dir:  ${styleText('cyan', marketplaceDir)}`,
-    `IDEs:        ${styleText('cyan', selectedIDEs.join(', '))}`,
+    `${tt('install.status.version')} ${styleText('cyan', version)}`,
+    `${tt('install.status.pluginDir')} ${styleText('cyan', marketplaceDir)}`,
+    `${tt('install.status.ides')} ${styleText('cyan', selectedIDEs.join(', '))}`,
   ];
   if (trialActivated) {
-    summaryLines.push(`Cloud sync:  ${styleText('cyan', 'ON (cmem Pro free week)')}`);
+    summaryLines.push(`${tt('install.status.cloudSyncOn')} ${styleText('cyan', tt('install.status.cloudSyncOnValue'))}`);
   }
   if (autoMemoryStatus === 'disabled') {
-    summaryLines.push(`Auto-memory: ${styleText('cyan', 'disabled')} (CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)`);
+    summaryLines.push(`${tt('install.status.autoMemoryDisabled')} ${styleText('cyan', tt('install.status.autoMemoryDisabledValue'))}`);
   } else if (autoMemoryStatus === 'already-disabled') {
-    summaryLines.push(`Auto-memory: ${styleText('cyan', 'already disabled')} (CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)`);
+    summaryLines.push(`${tt('install.status.autoMemoryDisabled')} ${styleText('cyan', tt('install.status.autoMemoryAlreadyDisabled'))}`);
   } else if (autoMemoryStatus === 'left-enabled') {
-    summaryLines.push(`Auto-memory: ${styleText('cyan', 'left enabled')} (native Claude Code memory preserved)`);
+    summaryLines.push(`${tt('install.status.autoMemoryDisabled')} ${styleText('cyan', tt('install.status.autoMemoryLeftEnabled'))}`);
   } else if (autoMemoryStatus === 'failed') {
-    summaryLines.push(`Auto-memory: ${styleText('red', 'write failed')} (see warning above)`);
+    summaryLines.push(`${tt('install.status.autoMemoryDisabled')} ${styleText('red', tt('install.status.autoMemoryWriteFailed'))}`);
   }
   if (failedIDEs.length > 0) {
-    summaryLines.push(`Failed:      ${styleText('red', failedIDEs.join(', '))}`);
+    summaryLines.push(`${tt('install.status.failed')} ${styleText('red', failedIDEs.join(', '))}`);
   }
 
   if (isInteractive) {
@@ -2467,7 +2477,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // is misleading.
   if (!autoStartSkipped) {
     const healthSpinner = isInteractive ? p.spinner() : null;
-    healthSpinner?.start(`Verifying worker on port ${workerPort}…`);
+    healthSpinner?.start(tt('install.status.verifyingWorker', { port: workerPort }));
     try {
       const healthResponse = await fetch(`http://${workerUrlHost}:${workerPort}/api/health`, {
         signal: AbortSignal.timeout(3000),
@@ -2485,11 +2495,11 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       }
       healthSpinner?.stop(
         workerReady
-          ? `Worker ready at http://localhost:${actualPort}`
-          : `Worker reachable but not ready on port ${workerPort}`,
+          ? tt('install.status.workerReadyAt', { port: actualPort })
+          : tt('install.status.workerNotReady', { port: workerPort }),
       );
     } catch {
-      healthSpinner?.stop(`Worker not yet responding on port ${workerPort} (still starting)`);
+      healthSpinner?.stop(tt('install.status.workerNotResponding', { port: workerPort }));
     }
 
     // Trial installs just wrote cloud-sync settings the worker booted with, so
@@ -2504,9 +2514,9 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         if (syncResponse.ok) {
           const sync = await syncResponse.json() as { configured?: boolean };
           if (sync && sync.configured === false) {
-            log.warn('Cloud sync: worker has not picked up the sync settings yet — it will on its next restart.');
+            log.warn(tt('install.sync.notPickedUp'));
           } else {
-            log.success('Cloud sync: configured — the worker is reporting sync status.');
+            log.success(tt('install.sync.configured'));
           }
         }
       } catch {
@@ -2522,52 +2532,52 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   const workerBaseUrl = `http://${workerUrlHost}:${actualPort}`;
   const configuredWorkerBaseUrl = `http://${workerUrlHost}:${workerPort}`;
   const workerHeadline = autoStartSkipped
-    ? `${styleText('yellow', '!')} ${runtimeLabel} autostart skipped — start it manually with ${styleText('bold', runtimeStartCommand)}`
+    ? `${styleText('yellow', '!')} ${selectedRuntime === 'server' ? tt('install.status.serverAutostartSkipped') : tt('install.status.autostartSkipped', { label: runtimeLabel, command: runtimeStartCommand })}`
     : workerReady || finalWorkerState === 'ready'
-      ? `${styleText('green', '✓')} ${runtimeLabel} running at ${styleText('underline', workerBaseUrl)}`
-      : `${styleText('yellow', '⏳')} ${runtimeLabel} starting at ${styleText('underline', workerBaseUrl)} — give it ~30s, then refresh`;
+      ? `${styleText('green', '✓')} ${tt('install.status.workerRunningAt')} ${styleText('underline', workerBaseUrl)}`
+      : `${styleText('yellow', '⏳')} ${tt('install.status.workerStartingAt')} ${styleText('underline', workerBaseUrl)} ${tt('install.status.workerStartingRefresh')}`;
   const nextStepsHeadline = autoStartSkipped || workerAlive
     ? workerHeadline
-    : `${styleText('yellow', '!')} Worker not yet ready on port ${styleText('cyan', String(workerPort))} -- still starting up; check ${styleText('bold', 'claude-mem status')} later, or start manually: ${styleText('bold', 'npx claude-mem start')}`;
+    : `${styleText('yellow', '!')} ${tt('install.status.workerNotReadyOnPort')} ${styleText('cyan', String(workerPort))} ${tt('install.status.workerNotReadyDetails')} ${tt('install.status.laterOrStart')} ${tt('install.status.startCommand')}`;
   const firstSuccessOpener = autoStartSkipped
-    ? `once the worker is running, keep ${styleText('underline', configuredWorkerBaseUrl)} open in a browser`
+    ? `${tt('install.status.firstSuccessWhenRunning')} ${styleText('underline', configuredWorkerBaseUrl)} ${tt('install.status.firstSuccessEnd')}`
     : workerAlive
-      ? 'keep that URL open in a browser'
-      : `keep ${styleText('underline', configuredWorkerBaseUrl)} open in a browser`;
+      ? `${tt('install.status.firstSuccessWhenAlive')} ${tt('install.status.firstSuccessEnd')}`
+      : `${tt('install.status.firstSuccessWhenRunning')} ${styleText('underline', configuredWorkerBaseUrl)} ${tt('install.status.firstSuccessEnd')}`;
   const nextSteps = [
     nextStepsHeadline,
     ``,
-    `${styleText('bold', 'First success:')} ${firstSuccessOpener}, then open Claude Code in any project. Observations stream in as Claude reads, edits, and runs commands.`,
+    `${styleText('bold', tt('install.status.firstSuccess'))} ${firstSuccessOpener}`,
     ``,
-    `${styleText('bold', 'Two paths from here:')}`,
-    `  ${styleText('cyan', 'A.')} Just start working. Memory builds passively from your first prompt. (Recommended.)`,
-    `  ${styleText('cyan', 'B.')} Front-load it: open Claude Code and run ${styleText('bold', '/learn-codebase')} to ingest the whole repo (~5 min, optional).`,
+    `${styleText('bold', tt('install.status.twoPaths'))}`,
+    `  ${styleText('cyan', 'A.')} ${tt('install.status.pathA')}`,
+    `  ${styleText('cyan', 'B.')} ${tt('install.status.pathB')} ${tt('install.status.learnCodebase')} ${tt('install.status.pathBEnd')}`,
     ``,
-    `Memory injection starts on your second session in a project.`,
-    `Everything stays in ${styleText('cyan', '~/.claude-mem')} on this machine.`,
+    tt('install.status.memoryInjection'),
+    `${tt('install.status.everythingStays')} ${styleText('cyan', '~/.claude-mem')} ${tt('install.status.onThisMachine')}`,
     ``,
-    `${styleText('dim', 'How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
-    `${styleText('dim', 'Note: close all Claude Code sessions before uninstalling, or ~/.claude-mem will be recreated by active hooks.')}`,
+    `${styleText('dim', tt('install.status.howItWorks'))}`,
+    `${styleText('dim', tt('install.status.uninstallNote'))}`,
   ];
 
   if (isInteractive) {
-    p.note(nextSteps.join('\n'), 'Next Steps');
+    p.note(nextSteps.join('\n'), tt('install.status.nextSteps'));
     // Deliberately the last interaction of the flow: consent is asked after
     // the product is installed and working, never as a gate in front of it.
     await promptTelemetryOptIn();
     if (failedIDEs.length > 0) {
-      p.outro(styleText('yellow', 'claude-mem installed with some IDE setup failures.'));
+      p.outro(styleText('yellow', tt('install.status.installedWithFailures')));
     } else {
-      p.outro(styleText('green', 'claude-mem installed successfully!'));
+      p.outro(styleText('green', tt('install.status.installedSuccessfully')));
     }
   } else {
-    console.log('\n  Next Steps');
+    console.log(`\n  ${tt('install.status.nextSteps')}`);
     nextSteps.forEach(l => console.log(`  ${l}`));
     if (failedIDEs.length > 0) {
-      console.log('\nclaude-mem installed with some IDE setup failures.');
+      console.log(`\n${tt('install.status.installedWithFailures')}`);
       process.exitCode = 1;
     } else {
-      console.log('\nclaude-mem installed successfully!');
+      console.log(`\n${tt('install.status.installedSuccessfully')}`);
     }
   }
 
@@ -2597,50 +2607,50 @@ async function runRepairCommandInner(summary: InstallSummary): Promise<void> {
   let uvVersion = 'unknown';
 
   if (isInteractive) {
-    p.intro(styleText(['bgCyan', 'black'], ' claude-mem repair '));
+    p.intro(styleText(['bgCyan', 'black'], tt('install.status.repairIntro')));
   } else {
-    console.log('claude-mem repair');
+    console.log(tt('install.status.repairIntro'));
   }
-  log.info(`Version: ${styleText('cyan', version)}`);
+  log.info(`${tt('install.status.version')} ${styleText('cyan', version)}`);
 
   await runTasks([
     {
-      title: 'Setting up runtime',
+      title: tt('install.status.repairRuntime'),
       task: async (message) => {
-        message('Checking Bun…');
+        message(tt('install.status.checkingBun'));
         const bun = await ensureBun(summary);
         bunVersion = bun.version;
-        message('Checking uv…');
+        message(tt('install.status.checkingUv'));
         const uv = await ensureUv(summary);
         uvVersion = uv.version;
         // Repair must regenerate the cache if it was wiped (e.g. user ran
         // `rm -rf ~/.claude/plugins/cache`). Without this, bun install would
         // fail immediately with no package.json to install against.
         if (!existsSync(join(cacheDir, 'package.json'))) {
-          message('Cache missing — repopulating from npm package…');
+          message(tt('install.status.cacheMissing'));
           copyPluginToCache(version);
         }
-        message('Reinstalling plugin dependencies…');
+        message(tt('install.status.reinstallingDeps'));
         const { bunPath } = bun;
         await installPluginDependencies(cacheDir, bunPath);
         writeInstallMarker(cacheDir, version, bunVersion, uvVersion);
-        return `Runtime ready (Bun ${bunVersion}, uv ${uvVersion}) ${styleText('green', 'OK')}`;
+        return `${tt('install.status.runtimeReady', { bunVersion, uvVersion })} ${styleText('green', 'OK')}`;
       },
     },
     {
-      title: 'Repairing marketplace runtime',
+      title: tt('install.status.repairingMarketplace'),
       task: async (message) => {
-        message('Repopulating marketplace root from npm package…');
+        message(tt('install.status.repopulatingMarketplace'));
         copyPluginToMarketplace();
-        message('Reinstalling marketplace dependencies…');
-        const stopHeartbeat = startHeartbeat(message, 'Running npm install…');
+        message(tt('install.status.reinstallingMarketplaceDeps'));
+        const stopHeartbeat = startHeartbeat(message, tt('install.status.runningNpmInstall'));
         try {
           await runNpmInstallInMarketplace(summary);
           writeMarketplaceInstallMarkers(marketplaceDir, version, bunVersion, uvVersion);
         } finally {
           stopHeartbeat();
         }
-        return `Marketplace runtime ready ${styleText('green', 'OK')}`;
+        return `${tt('install.status.marketplaceReady')} ${styleText('green', 'OK')}`;
       },
     },
   ]);
@@ -2648,9 +2658,9 @@ async function runRepairCommandInner(summary: InstallSummary): Promise<void> {
   flushSummary(summary, (line) => (isInteractive ? p.log.message(line) : console.log(`  ${line}`)));
 
   if (isInteractive) {
-    p.outro(styleText('green', 'claude-mem repair complete.'));
+    p.outro(styleText('green', tt('install.status.repairComplete')));
   } else {
-    console.log('claude-mem repair complete.');
+    console.log(tt('install.status.repairComplete'));
   }
 }
 

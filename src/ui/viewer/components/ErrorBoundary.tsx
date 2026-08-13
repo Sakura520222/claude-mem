@@ -1,4 +1,6 @@
 import React, { Component, ReactNode, ErrorInfo } from 'react';
+import { I18nProvider, useI18n } from '../i18n/I18nProvider';
+import { normalizeLocale } from '../i18n/core';
 
 interface Props {
   children: ReactNode;
@@ -8,6 +10,32 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+}
+
+function ErrorFallback({ error, errorInfo }: { error: Error | null; errorInfo: ErrorInfo | null }) {
+  const { t } = useI18n();
+  return (
+    <div style={{ padding: '20px', color: '#ff6b6b', backgroundColor: '#1a1a1a', minHeight: '100vh' }}>
+      <h1 style={{ fontSize: '24px', marginBottom: '10px' }}>{t('error.title')}</h1>
+      <p style={{ marginBottom: '10px', color: '#8b949e' }}>
+        {t('error.description')}
+      </p>
+      {error && (
+        <details style={{ marginTop: '20px', color: '#8b949e' }}>
+          <summary style={{ cursor: 'pointer', marginBottom: '10px' }}>{t('error.details')}</summary>
+          <pre style={{
+            backgroundColor: '#0d1117',
+            padding: '10px',
+            borderRadius: '6px',
+            overflow: 'auto'
+          }}>
+            {error.toString()}
+            {errorInfo && '\n\n' + errorInfo.componentStack}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -34,27 +62,16 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      // The fallback renders outside I18nProvider (ErrorBoundary wraps <App/> at
+      // the root), so seed a provider from <html lang>, which useLocale keeps in
+      // sync with the active locale.
+      const locale = normalizeLocale(
+        typeof document !== 'undefined' ? document.documentElement.lang : null
+      ) ?? 'en';
       return (
-        <div style={{ padding: '20px', color: '#ff6b6b', backgroundColor: '#1a1a1a', minHeight: '100vh' }}>
-          <h1 style={{ fontSize: '24px', marginBottom: '10px' }}>Something went wrong</h1>
-          <p style={{ marginBottom: '10px', color: '#8b949e' }}>
-            The application encountered an error. Please refresh the page to try again.
-          </p>
-          {this.state.error && (
-            <details style={{ marginTop: '20px', color: '#8b949e' }}>
-              <summary style={{ cursor: 'pointer', marginBottom: '10px' }}>Error details</summary>
-              <pre style={{
-                backgroundColor: '#0d1117',
-                padding: '10px',
-                borderRadius: '6px',
-                overflow: 'auto'
-              }}>
-                {this.state.error.toString()}
-                {this.state.errorInfo && '\n\n' + this.state.errorInfo.componentStack}
-              </pre>
-            </details>
-          )}
-        </div>
+        <I18nProvider locale={locale}>
+          <ErrorFallback error={this.state.error} errorInfo={this.state.errorInfo} />
+        </I18nProvider>
       );
     }
 

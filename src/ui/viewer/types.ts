@@ -93,4 +93,7 @@ export interface Settings {
 
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY?: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE?: string;
+
+  /** Display language written by the installer; used as WebUI default. */
+  CLAUDE_MEM_LOCALE?: string;
 }

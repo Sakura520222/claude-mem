@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ProjectCatalog, Settings } from '../types';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface UseContextPreviewResult {
   preview: string;
@@ -25,6 +26,7 @@ function withDefaultSources(sources: string[]): string[] {
 }
 
 export function useContextPreview(settings: Settings): UseContextPreviewResult {
+  const { t } = useI18n();
   const [preview, setPreview] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +84,7 @@ export function useContextPreview(settings: Settings): UseContextPreviewResult {
 
   const refresh = useCallback(async () => {
     if (!selectedProject) {
-      setPreview('No project selected');
+      setPreview(t('contextPreview.noProject'));
       return;
     }
 
@@ -104,15 +106,15 @@ export function useContextPreview(settings: Settings): UseContextPreviewResult {
       if (response.ok) {
         setPreview(text);
       } else {
-        setError('Failed to load preview');
+        setError(t('contextPreview.loadError'));
       }
     } catch (error: unknown) {
       console.error('Failed to load context preview:', error instanceof Error ? error.message : String(error));
-      setError('Failed to load preview');
+      setError(t('contextPreview.loadError'));
     }
 
     setIsLoading(false);
-  }, [selectedProject, selectedSource]);
+  }, [selectedProject, selectedSource, t]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {

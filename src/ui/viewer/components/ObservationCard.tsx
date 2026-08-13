@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Observation } from '../types';
 import { formatDate } from '../utils/formatters';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface ObservationCardProps {
   observation: Observation;
@@ -26,6 +27,7 @@ function stripProjectRoot(filePath: string): string {
 }
 
 export function ObservationCard({ observation }: ObservationCardProps) {
+  const { t } = useI18n();
   const [showFacts, setShowFacts] = useState(false);
   const [showNarrative, setShowNarrative] = useState(false);
   const date = formatDate(observation.created_at_epoch);
@@ -37,21 +39,28 @@ export function ObservationCard({ observation }: ObservationCardProps) {
 
   const hasFactsContent = facts.length > 0 || concepts.length > 0 || filesRead.length > 0 || filesModified.length > 0;
 
+  const typeLabels: Record<string, string> = {
+    observation: t('card.type.observation'),
+    summary: t('card.type.summary'),
+    prompt: t('card.type.prompt'),
+  };
+  const typeLabel = typeLabels[observation.type] ?? observation.type;
+
   return (
     <div className="card">
       {/* Header with toggle buttons in top right */}
       <div className="card-header">
         <div className="card-header-left">
           <span className={`card-type type-${observation.type}`}>
-            {observation.type}
+            {typeLabel}
           </span>
           <span className={`card-source source-${observation.platform_source || 'claude'}`}>
             {observation.platform_source || 'claude'}
           </span>
           <span className="card-project">{observation.project}</span>
           {observation.merged_into_project && (
-            <span className="card-merged-badge" title={`Merged into ${observation.merged_into_project}`}>
-              merged → {observation.merged_into_project}
+            <span className="card-merged-badge" title={t('card.merged.title', { project: observation.merged_into_project })}>
+              {t('card.merged.label', { project: observation.merged_into_project })}
             </span>
           )}
         </div>
@@ -68,7 +77,7 @@ export function ObservationCard({ observation }: ObservationCardProps) {
                 <polyline points="9 11 12 14 22 4"></polyline>
                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
               </svg>
-              <span>facts</span>
+              <span>{t('card.view.facts')}</span>
             </button>
           )}
           {observation.narrative && (
@@ -85,14 +94,14 @@ export function ObservationCard({ observation }: ObservationCardProps) {
                 <line x1="16" y1="13" x2="8" y2="13"></line>
                 <line x1="16" y1="17" x2="8" y2="17"></line>
               </svg>
-              <span>narrative</span>
+              <span>{t('card.view.narrative')}</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Title */}
-      <div className="card-title">{observation.title || 'Untitled'}</div>
+      <div className="card-title">{observation.title || t('card.untitled')}</div>
 
       {/* Content based on toggle state */}
       <div className="view-mode-content">
@@ -132,12 +141,12 @@ export function ObservationCard({ observation }: ObservationCardProps) {
             ))}
             {filesRead.length > 0 && (
               <span className="meta-files">
-                <span className="file-label">read:</span> {filesRead.join(', ')}
+                <span className="file-label">{t('card.file.read')}</span> {filesRead.join(', ')}
               </span>
             )}
             {filesModified.length > 0 && (
               <span className="meta-files">
-                <span className="file-label">modified:</span> {filesModified.join(', ')}
+                <span className="file-label">{t('card.file.modified')}</span> {filesModified.join(', ')}
               </span>
             )}
           </div>

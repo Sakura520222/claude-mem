@@ -26,4 +26,6 @@ export const DEFAULT_SETTINGS = {
 
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',
+
+  CLAUDE_MEM_LOCALE: 'en',
 } as const;
