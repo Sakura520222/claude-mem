@@ -119,7 +119,7 @@ export const zh: Dictionary = {
   'settings.customBaseUrl': '自定义 Base URL（可选）',
   'settings.customBaseUrlTooltip': '将 OpenRouter 客户端指向任意兼容 OpenAI 的端点（DeepSeek、OpenAI、LM Studio、Ollama、vLLM）。留空 = 默认 OpenRouter。会自动追加 /chat/completions。',
   'settings.deepThinking': '深度思考（可选）',
-  'settings.deepThinkingTooltip': "针对 MiMo 风格网关的 thinking.type 开关。'disabled' = 更快，避免可能破坏工具调用循环的 agent reasoning_content 往返；'enabled' = 回答前深度推理。留空 = 端点默认。",
+  'settings.deepThinkingTooltip': "针对 MiMo 风格网关的 thinking.type 开关。'disabled' = 更快，避免可能破坏工具调用循环的 agent reasoning_content 往返；'enabled' = 回答前深度推理。留空（推荐）= 不发送该字段，兼容 Groq 等标准 OpenAI 兼容 API。注：若网关不支持该字段，worker 会自动去掉并重试。",
   'settings.thinkingDefault': '端点默认',
   'settings.thinkingDisabled': 'disabled（更快，推荐）',
   'settings.thinkingEnabled': 'enabled（深度推理）',

@@ -119,7 +119,7 @@ export const en: Dictionary = {
   'settings.customBaseUrl': 'Custom Base URL (Optional)',
   'settings.customBaseUrlTooltip': 'Point the OpenRouter client at any OpenAI-compatible endpoint (DeepSeek, OpenAI, LM Studio, Ollama, vLLM). Empty = default OpenRouter. /chat/completions is appended automatically.',
   'settings.deepThinking': 'Deep Thinking (Optional)',
-  'settings.deepThinkingTooltip': "thinking.type toggle for MiMo-style gateways. 'disabled' = faster and avoids the agent reasoning_content round-trip that can break tool-call loops; 'enabled' = deep reasoning before answering. Empty = endpoint default.",
+  'settings.deepThinkingTooltip': "thinking.type toggle for MiMo-style gateways. 'disabled' = faster and avoids the agent reasoning_content round-trip that can break tool-call loops; 'enabled' = deep reasoning before answering. Empty (recommended) = omit the field, safe for Groq and other standard OpenAI-compatible APIs. Note: if the gateway rejects the field, the worker drops it and retries automatically.",
   'settings.thinkingDefault': 'Endpoint default',
   'settings.thinkingDisabled': 'disabled (faster, recommended)',
   'settings.thinkingEnabled': 'enabled (deep reasoning)',

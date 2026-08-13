@@ -94,6 +94,43 @@ export function classifyOpenRouterError(input: {
   );
 }
 
+/**
+ * Request origins known to reject the non-standard `thinking` body field.
+ * Keyed by origin so a single rejection suppresses the field for the worker
+ * process lifetime. `thinking.type` is MiMo-specific; most OpenAI-compatible
+ * servers (Groq and other strict gateways) respond 400 to it.
+ */
+export const thinkingUnsupportedHosts = new Set<string>();
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Does this 400 body look like a rejection of the `thinking` field? The field
+ * is non-standard, so unsupported gateways surface it as "property 'thinking'
+ * is unsupported" (Groq), "unknown parameter: thinking", or "unrecognized
+ * argument: thinking". Status must be 400 and the body must name `thinking`
+ * alongside an unsupported/unknown/unrecognized qualifier.
+ */
+export function isThinkingUnsupportedError(status: number, body: string): boolean {
+  if (status !== 400) return false;
+  const lower = body.toLowerCase();
+  if (!lower.includes('thinking')) return false;
+  return (
+    lower.includes('unsupported') ||
+    lower.includes('unrecognized') ||
+    lower.includes('unknown') ||
+    lower.includes('unexpected') ||
+    lower.includes('not a valid') ||
+    lower.includes('is not defined')
+  );
+}
+
 const CHARS_PER_TOKEN_ESTIMATE = 4;
 
 interface OpenAIMessage {
@@ -242,6 +279,45 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
     });
   }
 
+  /**
+   * fetchChatCompletion wrapper that drops `thinking.type` when a gateway
+   * rejects the field. The first rejection records the origin in
+   * {@link thinkingUnsupportedHosts} so later requests omit it up front. This
+   * keeps a misconfigured thinking toggle (e.g. a Groq endpoint with
+   * thinking=disabled) from hard-failing every request with an unrecoverable 400.
+   */
+  private async fetchWithThinkingFallback(
+    apiUrl: string,
+    apiKey: string,
+    model: string,
+    messages: OpenAIMessage[],
+    siteUrl: string | undefined,
+    appName: string | undefined,
+    priorRequestId: string | null,
+    attemptSignal: AbortSignal,
+    thinkingType: 'enabled' | 'disabled' | undefined,
+  ): Promise<Response> {
+    const origin = originOf(apiUrl);
+    const alreadyKnownUnsupported = origin !== null && thinkingUnsupportedHosts.has(origin);
+    const effective = thinkingType !== undefined && !alreadyKnownUnsupported ? thinkingType : undefined;
+
+    const response = await this.fetchChatCompletion(
+      apiUrl, apiKey, model, messages, siteUrl, appName, priorRequestId, attemptSignal, effective,
+    );
+
+    if (effective !== undefined && response.status === 400) {
+      const errorText = await response.clone().text();
+      if (isThinkingUnsupportedError(response.status, errorText)) {
+        if (origin !== null) thinkingUnsupportedHosts.add(origin);
+        logger.warn('SDK', `Gateway rejected thinking.type field; retrying without it (${apiUrl})`);
+        return this.fetchChatCompletion(
+          apiUrl, apiKey, model, messages, siteUrl, appName, priorRequestId, attemptSignal, undefined,
+        );
+      }
+    }
+    return response;
+  }
+
   private async queryOpenRouterMultiTurn(
     history: ConversationMessage[],
     apiKey: string,
@@ -266,7 +342,7 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
     const data = await withRetry<OpenRouterResponse>(async (attemptSignal) => {
       let response: Response;
       try {
-        response = await this.fetchChatCompletion(apiUrl, apiKey, model, messages, siteUrl, appName, priorRequestId, attemptSignal, thinkingType);
+        response = await this.fetchWithThinkingFallback(apiUrl, apiKey, model, messages, siteUrl, appName, priorRequestId, attemptSignal, thinkingType);
       } catch (networkError: unknown) {
         const err = networkError instanceof Error ? networkError : new Error(String(networkError));
         throw classifyOpenRouterError({ cause: err });

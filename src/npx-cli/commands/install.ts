@@ -1160,16 +1160,19 @@ async function configureCustomProvider(options: InstallOptions): Promise<Provide
     apiKey = String(apiKeyResult).trim() || existingKey;
   }
 
-  // Thinking toggle (#1): MiMo-style gateways support thinking.type. Default to
-  // "disabled" for custom endpoints — faster, cheaper, and avoids the multi-turn
-  // reasoning_content round-trip that breaks agent tool-call loops.
+  // Thinking toggle (#1): MiMo-style gateways support thinking.type. Most custom
+  // endpoints (Groq, DeepSeek, Ollama, LM Studio, strict OpenAI-compatible
+  // servers) reject this non-standard field with a 400, so the safe default is
+  // to omit it. MiMo users can still pick disabled/enabled explicitly. The
+  // worker also auto-recovers if a misconfigured thinking toggle 400s at runtime
+  // (see OpenRouterProvider.fetchWithThinkingFallback).
   const thinkingResult = await p.select({
     message: tt('install.custom.thinkingPrompt'),
-    initialValue: existingThinking === 'enabled' || existingThinking === 'disabled' ? existingThinking : 'disabled',
+    initialValue: existingThinking === 'enabled' || existingThinking === 'disabled' ? existingThinking : '',
     options: [
+      { value: '', label: tt('install.custom.thinkingOmitLabel'), hint: tt('install.custom.thinkingOmitHint') },
       { value: 'disabled', label: tt('install.custom.thinkingDisabledLabel'), hint: tt('install.custom.thinkingDisabledHint') },
       { value: 'enabled', label: tt('install.custom.thinkingEnabledLabel'), hint: tt('install.custom.thinkingEnabledHint') },
-      { value: '', label: tt('install.custom.thinkingOmitLabel'), hint: tt('install.custom.thinkingOmitHint') },
     ],
   });
   if (p.isCancel(thinkingResult)) {
